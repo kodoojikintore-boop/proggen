@@ -78,15 +78,6 @@
   details.adv summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--mut);padding:10px 0}
   details.adv .grid{padding-bottom:12px}
   @media(max-width:520px){h1{font-size:22px}}
-  @media print{
-    body{background:#fff;color:#000;font-size:12px}
-    :root{--panel:#fff;--panel2:#fff;--line:#bbb;--ink:#000;--mut:#555;--redink:#a01020}
-    #form,.toolbar,.tabs,.legend{display:none!important}
-    #out{display:block!important}
-    .printall .weekblock{display:block!important;page-break-before:always}
-    tr.r-top td{background:#f4e6e7}
-    input,select{border:none;background:#fff;color:#000;padding:0}
-  }
 </style>
 
 <div class="wrap">
@@ -207,6 +198,17 @@
       <div class="hint">代替種目・RPE/量の上限を自動適用。代替行の重量はコーチが手入力できます。</div>
     </section>
 
+    <section class="card"><h2>種目ライブラリ</h2>
+      <details class="adv"><summary>種目の追加・編集・削除（タップで開く）</summary>
+        <div class="hint" style="margin:4px 0 10px">ここで編集した内容が自動生成と差し替え候補に反映されます。用途: BO=バックオフ変化 / 弱点 / 肥大=筋肥大。故障タグの付いた種目は該当する故障のクライアントには出しません。</div>
+        <div id="libTable" style="overflow-x:auto"></div>
+        <div style="display:flex;gap:8px;margin:10px 0 12px;flex-wrap:wrap">
+          <button class="btn ghost small" onclick="libAddRow()">＋ 種目を追加</button>
+          <button class="btn ghost small" onclick="if(confirm('ライブラリを初期状態に戻しますか？追加した種目は消えます。'))(libResetDefault(),renderLib())">初期状態に戻す</button>
+        </div>
+      </details>
+    </section>
+
     <div id="errbox"></div>
     <button class="btn primary" onclick="generate()">プログラムを生成</button>
     <div style="height:8px"></div>
@@ -218,9 +220,9 @@
   <div id="out">
     <div class="toolbar">
       <button class="btn ghost" onclick="backToForm()">← 入力に戻る</button>
-      <button class="btn ghost" onclick="exportCSV()">CSV書き出し</button>
-      <button class="btn ghost" onclick="copyClient2()">清書をコピー</button>
-      <button class="btn ghost" onclick="printAll()">印刷 / PDF</button>
+      <button class="btn primary" style="flex:1.4" onclick="downloadPDF()" id="pdfBtn">📄 クライアント用PDFを保存</button>
+      <button class="btn ghost" onclick="copyLine()">LINE用にコピー</button>
+      <button class="btn ghost" onclick="downloadXLSX()" id="xlsxBtn">📊 Excel (記録用) を保存</button>
     </div>
     <div class="summary" id="summary"></div>
     <details class="phil"><summary>このプログラムの考え方・RPEの説明（クライアント向け）</summary>
@@ -241,6 +243,10 @@
   </div>
 </div>
 
+<div id="reportRoot" style="position:fixed;left:-99999px;top:0;width:780px;"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" integrity="sha512-GsLlZN/3F2ErC5ifS5QtgpiJtWd43JWSuIgh7mbzZ8zBps+dvLusV+eNQATqgA/HdeKFVgA5v3S/cIrLF7QnIg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script>
 /* ===================== ENGINE ===================== */
 const LIFTS=['squat','bench','deadlift'];
@@ -267,20 +273,110 @@ const SPLITS={
  5:[{label:'Day 1',slots:[['bench','P'],['deadlift','P']]},{label:'Day 2',slots:[['squat','P'],['bench','S']]},{label:'Day 3',slots:[['bench','P'],['squat','S']]},{label:'Day 4',slots:[['deadlift','S'],['bench','S']]},{label:'Day 5',slots:[['squat','S'],['deadlift','S'],['bench','S']]}],
  6:[{label:'Day 1',slots:[['bench','P'],['deadlift','P']]},{label:'Day 2',slots:[['squat','P'],['bench','S']]},{label:'Day 3',slots:[['bench','P'],['deadlift','S']]},{label:'Day 4',slots:[['squat','S'],['bench','S']]},{label:'Day 5',slots:[['bench','P'],['squat','S']]},{label:'Day 6',slots:[['deadlift','P'],['bench','S'],['squat','S']]}]};
 
-const VAR_OPTS={
- bench:['なし','ポーズ(2秒)','最大速度','Larsenプレス','ナローグリップ','フットアップ'],
- squat:['なし','ポーズ(3秒)','最大速度','ハイバー','テンポ(3秒下降)','1.5レップ'],
- deadlift:['なし','ポーズ(膝下)','最大速度','デフィシット','ブロックプル','スティフレッグ']};
-function suggestVar(lift,reps){return reps<=3?VAR_OPTS[lift][1]:VAR_OPTS[lift][2];}
+/* ===== 種目ライブラリ ===== */
+const CATS=[['squat','スクワット系'],['bench','ベンチ系'],['deadlift','デッド系'],
+ ['chest','胸'],['back','背中'],['shoulders','肩'],['triceps','三頭'],['biceps','二頭'],
+ ['quads','大腿四頭'],['hams','ハム'],['glutes','殿筋'],['calves','カーフ'],['core','体幹']];
+const CATJP=Object.fromEntries(CATS);
+const USEJP={backoff:'バックオフ変化',stick:'弱点強化',hyper:'筋肥大'};
+// n=名前, c=カテゴリ, u=用途, r=既定レップ, a=故障時除外
+const DEFAULT_LIB=[
+ // --- squat ---
+ {n:'ポーズ(3秒)',c:'squat',u:['backoff'],r:3,a:[]},
+ {n:'最大速度',c:'squat',u:['backoff'],r:5,a:[]},
+ {n:'ハイバー',c:'squat',u:['backoff'],r:5,a:[]},
+ {n:'テンポ(3秒下降)',c:'squat',u:['backoff'],r:5,a:[]},
+ {n:'1.5レップ',c:'squat',u:['backoff'],r:5,a:[]},
+ {n:'ポーズスクワット(弱点の高さ・2秒)',c:'squat',u:['stick'],r:4,a:[]},
+ {n:'グッドモーニング',c:'squat',u:['stick'],r:6,a:['back']},
+ {n:'フロントスクワット',c:'squat',u:['stick'],r:5,a:['knee']},
+ {n:'SSBスクワット',c:'squat',u:['stick'],r:5,a:[]},
+ {n:'ザーチャースクワット',c:'squat',u:['stick'],r:5,a:['elbow']},
+ // --- bench ---
+ {n:'ポーズ(2秒)',c:'bench',u:['backoff'],r:3,a:[]},
+ {n:'最大速度',c:'bench',u:['backoff'],r:5,a:[]},
+ {n:'Larsenプレス',c:'bench',u:['backoff'],r:5,a:[]},
+ {n:'ナローグリップ',c:'bench',u:['backoff'],r:5,a:['elbow']},
+ {n:'フットアップ',c:'bench',u:['backoff'],r:5,a:[]},
+ {n:'スポトプレス(胸上で静止)',c:'bench',u:['stick'],r:4,a:[]},
+ {n:'ナローグリップベンチ',c:'bench',u:['stick'],r:5,a:['elbow']},
+ {n:'インクラインバーベルプレス',c:'bench',u:['stick'],r:6,a:['shoulder']},
+ {n:'フロアプレス',c:'bench',u:['stick'],r:5,a:[]},
+ // --- deadlift ---
+ {n:'ポーズ(膝下)',c:'deadlift',u:['backoff'],r:3,a:[]},
+ {n:'最大速度',c:'deadlift',u:['backoff'],r:5,a:[]},
+ {n:'デフィシット',c:'deadlift',u:['backoff'],r:3,a:['back']},
+ {n:'ブロックプル',c:'deadlift',u:['backoff'],r:5,a:[]},
+ {n:'スティフレッグ',c:'deadlift',u:['backoff'],r:5,a:['back']},
+ {n:'ポーズデッド(床離れ直後)',c:'deadlift',u:['stick'],r:3,a:[]},
+ {n:'ポーズデッド(膝下)',c:'deadlift',u:['stick'],r:3,a:[]},
+ {n:'ブロックプル(低め・膝下)',c:'deadlift',u:['stick'],r:4,a:[]},
+ {n:'デフィシットデッド',c:'deadlift',u:['stick'],r:4,a:['back']},
+ {n:'スナッチグリップデッド',c:'deadlift',u:['stick'],r:4,a:['back']},
+ // --- 筋肥大: 胸 ---
+ {n:'インクラインダンベルプレス',c:'chest',u:['hyper'],r:8,a:[]},
+ {n:'マシンチェストプレス',c:'chest',u:['hyper'],r:8,a:[]},
+ {n:'ディップス(チェスト)',c:'chest',u:['hyper'],r:8,a:['shoulder','elbow']},
+ {n:'ペックフライ',c:'chest',u:['hyper'],r:10,a:[]},
+ {n:'ケーブルクロスオーバー',c:'chest',u:['hyper'],r:10,a:[]},
+ // --- 背中 ---
+ {n:'懸垂/ラットプルダウン',c:'back',u:['hyper'],r:8,a:[]},
+ {n:'チェストサポートロウ',c:'back',u:['hyper'],r:8,a:[]},
+ {n:'シーテッドロウ',c:'back',u:['hyper'],r:8,a:[]},
+ {n:'ベントオーバーロウ',c:'back',u:['hyper'],r:8,a:['back']},
+ {n:'ワンハンドロウ',c:'back',u:['hyper'],r:8,a:[]},
+ {n:'プルオーバー',c:'back',u:['hyper'],r:10,a:['shoulder']},
+ // --- 肩 ---
+ {n:'ダンベルショルダープレス',c:'shoulders',u:['hyper'],r:8,a:['shoulder']},
+ {n:'サイドレイズ',c:'shoulders',u:['hyper'],r:10,a:['shoulder']},
+ {n:'リアデルト',c:'shoulders',u:['hyper'],r:10,a:[]},
+ {n:'ケーブルサイドレイズ',c:'shoulders',u:['hyper'],r:10,a:['shoulder']},
+ // --- 三頭 ---
+ {n:'三頭プレスダウン',c:'triceps',u:['hyper'],r:10,a:[]},
+ {n:'スカルクラッシャー',c:'triceps',u:['hyper'],r:10,a:['elbow']},
+ {n:'オーバーヘッドエクステンション',c:'triceps',u:['hyper'],r:10,a:['elbow']},
+ // --- 二頭 ---
+ {n:'バーベルカール',c:'biceps',u:['hyper'],r:8,a:[]},
+ {n:'インクラインカール',c:'biceps',u:['hyper'],r:10,a:[]},
+ {n:'プリーチャーカール',c:'biceps',u:['hyper'],r:10,a:[]},
+ {n:'ハンマーカール',c:'biceps',u:['hyper'],r:10,a:[]},
+ // --- 脚・後面 ---
+ {n:'レッグプレス',c:'quads',u:['hyper'],r:8,a:[]},
+ {n:'ハックスクワット',c:'quads',u:['hyper'],r:8,a:['knee']},
+ {n:'ブルガリアンスクワット',c:'quads',u:['hyper'],r:8,a:['knee']},
+ {n:'ベルトスクワット',c:'quads',u:['hyper'],r:8,a:[]},
+ {n:'レッグエクステンション',c:'quads',u:['hyper'],r:10,a:['knee']},
+ {n:'ルーマニアンデッドリフト',c:'hams',u:['hyper'],r:8,a:['back']},
+ {n:'レッグカール',c:'hams',u:['hyper'],r:10,a:[]},
+ {n:'グルートハムレイズ',c:'hams',u:['hyper'],r:10,a:[]},
+ {n:'ヒップスラスト',c:'glutes',u:['hyper'],r:8,a:[]},
+ {n:'バックエクステンション',c:'glutes',u:['hyper'],r:10,a:['back']},
+ {n:'アブダクション',c:'glutes',u:['hyper'],r:10,a:[]},
+ {n:'カーフレイズ',c:'calves',u:['hyper'],r:10,a:[]},
+ // --- 体幹 ---
+ {n:'アブローラー',c:'core',u:['hyper'],r:10,a:['back']},
+ {n:'ケーブルクランチ',c:'core',u:['hyper'],r:10,a:[]},
+ {n:'ハンギングレッグレイズ',c:'core',u:['hyper'],r:10,a:[]},
+];
+let LIB=[];
+function libLoad(){try{const s=localStorage.getItem('plgen_lib');if(s){LIB=JSON.parse(s);return;}}catch(e){}
+ LIB=JSON.parse(JSON.stringify(DEFAULT_LIB));}
+function libSave(){try{localStorage.setItem('plgen_lib',JSON.stringify(LIB));}catch(e){}}
+function libResetDefault(){LIB=JSON.parse(JSON.stringify(DEFAULT_LIB));libSave();}
+function libOf(cat,use,injSet){return LIB.filter(e=>e.c===cat&&e.u.includes(use)&&(!injSet||!e.a.some(t=>injSet.has(t))));}
+function injSetOf(inj){return new Set(inj);}
+function varOpts(lift,injSet){return ['なし'].concat(libOf(lift,'backoff',injSet).map(e=>e.n));}
+function suggestVar(lift,reps,injSet){const o=libOf(lift,'backoff',injSet).map(e=>e.n);
+ if(reps<=3){const p=o.find(x=>x.includes('ポーズ'));if(p)return p;}
+ const v=o.find(x=>x.includes('最大速度'));return v||o[0]||'なし';}
+function stickOpts(lift,injSet){return libOf(lift,'stick',injSet).map(e=>e.n);}
+function hyperOf(part,injSet){return libOf(part,'hyper',injSet);}
 
 const STICK={squat:{bottom:'ポーズスクワット(3秒)',mid:'ポーズスクワット(弱点の高さ・2秒)',top:'グッドモーニング'},
  bench:{bottom:'ポーズベンチ(2〜3秒)',mid:'スポトプレス(胸上で静止)',top:'ナローグリップベンチ'},
  deadlift:{off_floor:'ポーズデッド(床離れ直後)',mid:'ポーズデッド(膝下)',lockout:'ブロックプル(低め・膝下)'}};
 
-const ACC_MENU=[['背中','懸垂/ラットプルダウン'],['背中','シーテッドロウ'],['背中','ベントオーバーロウ'],
- ['肩','サイドレイズ'],['肩','リアデルト'],['三頭','三頭プレスダウン'],['三頭','ディップス'],
- ['二頭','バーベルカール'],['ハム','レッグカール'],['大腿','レッグエクステンション'],
- ['殿筋','ヒップスラスト'],['カーフ','カーフレイズ'],['体幹','プランク/アブローラー']];
+const PL_ACC_PARTS=['back','shoulders','triceps','biceps','hams','quads','glutes','calves','core'];
 
 const INJURY={
  back:{affects:['deadlift','squat'],sub:{deadlift:'トラップバーデッド / ラックプル',squat:'ボックススクワット'},rpeCap:8,setsMult:0.85,accAvoid:[],note:'脊柱への負荷を制限。痛みが出たら即中止し受診を検討。'},
@@ -314,7 +410,7 @@ function mkTop(I,lift,rpe,inj,opts){opts=opts||{};
  const w=iv.sub?null:targetW(I.e1[lift],reps,rpe);
  return {k:'top',lift,name,label:opts.label||(opts.tech?'テクニック':(novice?'トップセット':'トップシングル')),
    reps,sets:1,rpe,pctTxt:'',weight:w===null?'':w,editW:true,subbed:!!iv.sub,
-   variation:opts.tech?{opts:VAR_OPTS[lift],val:VAR_OPTS[lift][1]}:null,
+   variation:opts.tech?(function(){const o=varOpts(lift,opts.injSet);return {opts:o,val:suggestVar(lift,3,opts.injSet)};})():null,
    warmup:w?warmupTxt(w):'',sep:true};}
 function mkTopPct(I,lift,pct,inj){
  const novice=I.exp==='novice';const reps=novice?3:1;
@@ -324,28 +420,40 @@ function mkTopPct(I,lift,pct,inj){
  return {k:'top',lift,name,label:novice?'トップセット':'トップシングル',reps,sets:1,rpe:'',pctTxt:pct+'%',
    weight:w===null?'':w,editW:true,subbed:!!iv.sub,variation:null,warmup:w?warmupTxt(w):'',sep:true};}
 function mkBackoff(I,lift,kind,inj){
- const iv=injuryFor(lift,inj);
+ const iv=injuryFor(lift,inj);const _is=injSetOf(inj);
  const pct=I.boPct[lift][kind];
  const cfg=kind==='P'?{reps:3,sets:5}:{reps:5,sets:5};
  const name=iv.sub?(JP[lift]+' → '+iv.sub):JP[lift];
  const w=iv.sub?null:round25(I.e1[lift]*pct/100);
  return {k:'backoff',lift,name,label:'バックオフ',reps:cfg.reps,sets:Math.max(1,Math.round(cfg.sets*iv.mult)),
    rpe:'6〜8',pctTxt:pct+'%',weight:w===null?'':w,editW:true,subbed:!!iv.sub,
-   variation:{opts:VAR_OPTS[lift],val:suggestVar(lift,cfg.reps)},
+   variation:{opts:varOpts(lift,_is),val:suggestVar(lift,cfg.reps,_is)},
    hint:'良いフォーム最優先。重く感じすぎる＝休息不足のサイン'};}
-function mkVar(I,lift,ceiling){
+function mkVar(I,lift,ceiling,inj){
  const sp=I['sp_'+lift];
  if(!sp||sp==='none'||!STICK[lift][sp])return null;
- return {k:'var',lift,name:STICK[lift][sp],label:'弱点強化',reps:I.exp==='novice'?5:4,sets:3,
-   rpe:Math.min(8,ceiling),pctTxt:'',weight:'RPE基準',editW:false,variation:null};}
+ const _is=injSetOf(inj||[]);
+ const opts=stickOpts(lift,_is);
+ if(!opts.length)return null;
+ let name=STICK[lift][sp];
+ if(!opts.includes(name))name=opts[0];
+ const ent=LIB.find(e=>e.n===name&&e.c===lift);
+ return {k:'var',lift,name,label:'弱点強化',reps:I.exp==='novice'?Math.max(5,(ent?ent.r:5)):(ent?ent.r:4),sets:3,
+   rpe:Math.min(8,ceiling),pctTxt:'',weight:'RPE基準',editW:false,variation:null,
+   swap:{opts:opts,cat:lift}};}
 function pushAcc(items,I,si,accCount,inj){
- const avoid=new Set();inj.forEach(k=>INJURY[k].accAvoid.forEach(a=>avoid.add(a)));
- const menu=ACC_MENU.filter(m=>!avoid.has(m[1]));
+ const _is=injSetOf(inj);
+ const pools=PL_ACC_PARTS.map(pt=>[pt,hyperOf(pt,_is)]).filter(x=>x[1].length);
+ const menu=[];
+ const maxLen=Math.max(0,...pools.map(x=>x[1].length));
+ for(let r=0;r<maxLen;r++)pools.forEach(([pt,pool])=>{if(r<pool.length)menu.push([pt,pool[r]]);});
+ if(!menu.length)return;
  const off=(si*3)%menu.length;const seen=new Set();let added=0;
  for(let j=0;j<menu.length&&added<accCount;j++){const m=menu[(off+j)%menu.length];
-  if(seen.has(m[1]))continue;seen.add(m[1]);
-  items.push({k:'acc',lift:'acc',name:m[1],label:'補助('+m[0]+')',reps:8,sets:3,rpe:'8目標',pctTxt:'',
-    weight:'RPE基準',editW:false,variation:null,sep:added===0});added++;}}
+  if(seen.has(m[1].n))continue;seen.add(m[1].n);
+  items.push({k:'acc',lift:'acc',name:m[1].n,label:'補助('+CATJP[m[0]]+')',reps:m[1].r,sets:3,rpe:'8目標',pctTxt:'',
+    weight:'RPE基準',editW:false,variation:null,sep:added===0,
+    swap:{opts:hyperOf(m[0],_is).map(e=>e.n),cat:m[0]}});added++;}}
 
 function buildProgram(I){return I.goal==='bm'?buildProgramBM(I):buildProgramPL(I);}
 
@@ -367,8 +475,8 @@ function buildProgramPL(I){
      const rawS=SDWAVE[qseq%4];const high=rawS>=8;
      items.push(mkTop(I,'squat',cl(rawS),inj));
      items.push(mkBackoff(I,'squat',high?'P':'S',inj));
-     if(!high){const v=mkVar(I,'squat',ceiling);if(v)items.push(v);}
-     if(brpe>=8){const v=mkVar(I,'bench',ceiling);if(v)items.push(v);}
+     if(!high){const v=mkVar(I,'squat',ceiling,inj);if(v)items.push(v);}
+     if(brpe>=8){const v=mkVar(I,'bench',ceiling,inj);if(v)items.push(v);}
      bseq++;qseq++;
    }else{
      items.push(mkTop(I,'bench',6,inj,{tech:true}));
@@ -376,7 +484,7 @@ function buildProgramPL(I){
      const rawD=SDWAVE[dseq%4];const high=rawD>=8;
      items.push(mkTop(I,'deadlift',cl(rawD),inj));
      items.push(mkBackoff(I,'deadlift',high?'P':'S',inj));
-     if(!high){const v=mkVar(I,'deadlift',ceiling);if(v)items.push(v);}
+     if(!high){const v=mkVar(I,'deadlift',ceiling,inj);if(v)items.push(v);}
      dseq++;
    }
    pushAcc(items,I,d-1,accCount,inj);
@@ -397,7 +505,7 @@ function buildProgramPL(I){
        const raw=lift==='bench'?PWAVE[idx%4]:SDWAVE[idx%4];
        items.push(mkTop(I,lift,cl(raw),inj));
        items.push(mkBackoff(I,lift,'P',inj));
-       const v=mkVar(I,lift,ceiling);if(v)items.push(v);
+       const v=mkVar(I,lift,ceiling,inj);if(v)items.push(v);
      }else{
        if(I.secMode==='technique'){items.push(mkTop(I,lift,6,inj,{tech:true}));}
        else{const idx=I.waveMode==='session'?sseq[lift]++:wk;items.push(mkTopPct(I,lift,SECPCT[idx%4],inj));}
@@ -415,23 +523,7 @@ function buildProgramPL(I){
 }
 
 /* ===== Bodymake (hypertrophy) engine ===== */
-const PARTJP={chest:'胸',back:'背中',shoulders:'肩',triceps:'三頭',biceps:'二頭',quads:'大腿四頭',hams:'ハム',glutes:'殿筋',calves:'カーフ',core:'体幹'};
-const PART_POOL={
- chest:['インクラインダンベルプレス','ディップス(チェスト)','ペックフライ','ケーブルクロスオーバー'],
- back:['懸垂/ラットプルダウン','ベントオーバーロウ','シーテッドロウ','ワンハンドロウ'],
- shoulders:['ダンベルショルダープレス','サイドレイズ','リアデルト'],
- triceps:['三頭プレスダウン','オーバーヘッドエクステンション','ナローグリップベンチ'],
- biceps:['バーベルカール','インクラインカール','ハンマーカール'],
- quads:['レッグプレス','ハックスクワット','ブルガリアンスクワット','レッグエクステンション'],
- hams:['ルーマニアンデッドリフト','レッグカール'],
- glutes:['ヒップスラスト','アブダクション'],
- calves:['カーフレイズ'],
- core:['アブローラー','ケーブルクランチ']};
-const BM_AVOID={
- back:['ベントオーバーロウ','ルーマニアンデッドリフト','ワンハンドロウ'],
- shoulder:['ダンベルショルダープレス','ディップス(チェスト)'],
- knee:['ブルガリアンスクワット','ハックスクワット'],
- elbow:['オーバーヘッドエクステンション','ナローグリップベンチ']};
+const PARTJP=CATJP;
 const BM_SPLITS={
  2:[{label:'Day 1 (全身A)',skill:['bench','squat'],parts:['chest','back','quads','shoulders','triceps','core']},
     {label:'Day 2 (全身B)',skill:['deadlift','bench'],parts:['back','chest','hams','glutes','biceps','calves']}],
@@ -456,13 +548,13 @@ const BM_SPLITS={
 const BM_WAVE=[6,7,7,8];
 
 function mkSkillBackoff(I,lift,sets,inj){
- const iv=injuryFor(lift,inj);
+ const iv=injuryFor(lift,inj);const _is=injSetOf(inj);
  const pct=I.boPct[lift].P;
  const name=iv.sub?(JP[lift]+' → '+iv.sub):JP[lift];
  const w=iv.sub?null:round25(I.e1[lift]*pct/100);
  return {k:'backoff',lift,name,label:'スキル維持',reps:3,sets:Math.max(1,Math.round(sets*iv.mult)),
   rpe:'6〜7',pctTxt:pct+'%',weight:w===null?'':w,editW:true,subbed:!!iv.sub,
-  variation:{opts:VAR_OPTS[lift],val:VAR_OPTS[lift][1]},
+  variation:{opts:varOpts(lift,_is),val:suggestVar(lift,3,_is)},
   hint:'技術維持が目的。追い込まない'};
 }
 
@@ -475,8 +567,7 @@ function buildProgramBM(I){
  const cl=x=>Math.min(x,ceiling);
  const tmpl=BM_SPLITS[parseInt(I.days)]||BM_SPLITS[4];
  const seq={squat:0,bench:0,deadlift:0};
- const avoid=new Set();
- inj.forEach(k=>{(INJURY[k].accAvoid||[]).forEach(a=>avoid.add(a));(BM_AVOID[k]||[]).forEach(a=>avoid.add(a));});
+ const _is=injSetOf(inj);
  const groups=[];const partWeekly={};
  for(let wk=0;wk<4;wk++){
   const days=[];
@@ -496,7 +587,7 @@ function buildProgramBM(I){
     let progress=false;
     for(const pt of parts){
      if(picked.length>=exCount)break;
-     let pool=PART_POOL[pt].filter(e=>!avoid.has(e));
+     let pool=hyperOf(pt,_is);
      if(pt==='shoulders'&&/プル/.test(t.label))pool=pool.slice().reverse();
      const i=idx[pt]||0;
      if(i<pool.length){picked.push([pt,pool[i],i]);idx[pt]=i+1;progress=true;}
@@ -505,9 +596,10 @@ function buildProgramBM(I){
    }
    picked.forEach(([pt,ex,i],j)=>{
     const sets=(pt===I.priPart&&i===0)?4:3;
-    items.push({k:'acc',lift:'acc',name:ex,label:'筋肥大('+PARTJP[pt]+')',reps:i===0?8:10,sets,
+    items.push({k:'acc',lift:'acc',name:ex.n,label:'筋肥大('+PARTJP[pt]+')',reps:ex.r,sets,
       rpe:'8目標',pctTxt:'',weight:'',editW:true,variation:null,sep:j===0,
-      hint:j===0?'規定回数を全セット達成したら次回重量アップ':''});
+      hint:j===0?'規定回数を全セット達成したら次回重量アップ':'',
+      swap:{opts:hyperOf(pt,_is).map(e=>e.n),cat:pt}});
     if(wk===0)partWeekly[pt]=(partWeekly[pt]||0)+sets;
    });
    days.push({label:t.label,items});
@@ -580,6 +672,7 @@ function generate(){const {err,I}=gather();const eb=document.getElementById('err
  PROG=buildProgram(I);renderOutput();
  document.getElementById('form').style.display='none';document.getElementById('out').style.display='block';window.scrollTo(0,0);}
 function backToForm(){document.getElementById('out').style.display='none';document.getElementById('form').style.display='block';window.scrollTo(0,0);}
+function esc2(x){return String(x).replace(/</g,'&lt;');}
 function zoneClass(rpe){const n=parseFloat(rpe);if(isNaN(n))return 'z6';return n>=9?'z9':(n>=8?'z8':(n>=7?'z7':'z6'));}
 
 function renderOutput(){
@@ -674,10 +767,11 @@ function renderAllGroups(){
      if(it.warmup)subs.push(it.warmup);
      const small=subs.length?'<small>'+subs.join('<br>')+'</small>':'';
      const varSel=it.variation?`<br><select class="var" onchange="editVal(${gi},${di},${ii},'variation',this.value)">${it.variation.opts.map(o=>`<option ${o===it.variation.val?'selected':''}>${o}</option>`).join('')}</select>`:'';
+     const nameCell=it.swap?`<select class="var" style="max-width:200px;font-size:13px;font-weight:600" onchange="editVal(${gi},${di},${ii},'swap',this.value)">${it.swap.opts.map(o=>`<option ${o===it.name?'selected':''}>${o}</option>`).join('')}</select>`:esc2(it.name);
      const inten=(it.rpe!==''?('@'+it.rpe):'')+(it.pctTxt?` <span class="pctsm">${it.pctTxt}</span>`:'');
      const wcell=it.editW?`<input class="w" type="number" step="2.5" value="${it.weight}" placeholder="手入力" oninput="editVal(${gi},${di},${ii},'weight',this.value)">`:`<span class="prescr">${it.weight}</span>`;
      return `<tr class="${cls}">
-       <td class="ex">${it.name}<span class="tag">${it.label}</span>${varSel}${small}</td>
+       <td class="ex">${nameCell}<span class="tag">${it.label}</span>${varSel}${small}</td>
        <td><span class="prescr"><span class="chip" style="background:${z}"></span>${it.reps}レップ ${inten}</span></td>
        <td><input class="s" type="number" value="${it.sets}" oninput="editVal(${gi},${di},${ii},'sets',this.value)"> set</td>
        <td>${wcell}<span style="color:var(--mut);font-size:12px"> ${it.editW?'kg':''}</span></td></tr>`;
@@ -691,27 +785,201 @@ function renderAllGroups(){
 function editVal(gi,di,ii,f,v){const it=PROG.groups[gi].days[di].items[ii];
  if(f==='sets')it.sets=parseInt(v)||it.sets;
  else if(f==='variation')it.variation.val=v;
+ else if(f==='swap'){it.name=v;
+   const ent=LIB.find(e=>e.n===v&&(!it.swap||e.c===it.swap.cat));
+   if(ent&&it.k==='acc')it.reps=ent.r;
+   const act=[...document.querySelectorAll('.tab')].findIndex(t=>t.classList.contains('active'));
+   renderAllGroups();showGroup(act<0?0:act);}
  else it.weight=v;}
 
-function exportCSV(){const p=PROG;const rows=[['ブロック','Day','種目','区分','バリエーション','セット','レップ','RPE','%','重量(kg)']];
- p.groups.forEach(g=>g.days.forEach(d=>d.items.forEach(it=>rows.push([g.label,d.label,it.name,it.label,it.variation?it.variation.val:'',it.sets,it.reps,it.rpe,it.pctTxt,it.weight]))));
- const csv='\ufeff'+rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\r\n');
- const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
- a.download='program.csv';document.body.appendChild(a);a.click();a.remove();}
-function copyClient2(){const p=PROG;let t='【トレーニングプログラム】\nBIG3＝練習(トップ＋バックオフ)／筋肥大＝補助8rep／デロード無し\n';
+/* ===== Excel (記録用ワークブック) ===== */
+const XL_RED='C41E2A',XL_GRAY='EFEFEF',XL_DAY='F5E3E4';
+const XL_TH={font:{bold:true,color:{rgb:'FFFFFF'},sz:10},fill:{fgColor:{rgb:XL_RED}},
+ alignment:{horizontal:'center',vertical:'center'},
+ border:{top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}}};
+const XL_TD={font:{sz:10},alignment:{vertical:'center',wrapText:true},
+ border:{top:{style:'thin',color:{rgb:'CCCCCC'}},bottom:{style:'thin',color:{rgb:'CCCCCC'}},
+  left:{style:'thin',color:{rgb:'CCCCCC'}},right:{style:'thin',color:{rgb:'CCCCCC'}}}};
+const XL_TD_FILL=Object.assign(JSON.parse(JSON.stringify(XL_TD)),{fill:{fgColor:{rgb:'FFF9E6'}}});
+const XL_DAYROW={font:{bold:true,sz:11,color:{rgb:XL_RED}},fill:{fgColor:{rgb:XL_DAY}},alignment:{vertical:'center'}};
+function xlc(v,s){const c={v:(v===undefined||v===null)?'':v,s:s||XL_TD};c.t=(typeof c.v==='number')?'n':'s';return c;}
+const XL_HEADERS=['種目','区分','バリエーション','セット','指定レップ','強度','指定重量kg','実施重量','実施レップ','体感RPE','メモ'];
+
+function buildWorkbook(p){
+ const name=(document.getElementById('clientName').value||'').trim();
+ const today=new Date();const dateStr=today.getFullYear()+'/'+(today.getMonth()+1)+'/'+today.getDate();
+ const wb=XLSX.utils.book_new();
+ const ov=[];
+ ov.push([xlc('トレーニングプログラム',{font:{bold:true,sz:16,color:{rgb:XL_RED}}})]);
+ ov.push([]);
+ [['クライアント',name||'-'],
+  ['目標',p.goal==='bm'?'ボディメイク（筋肥大）':'パワーリフティング（筋力）'],
+  ['作成日',dateStr],
+  ['スケジュール',p.days==='cycle8'?'8日サイクル':'週'+p.days+'回'],
+  ['デロード','無し（RPE波動で管理）'],
+  ['スクワット e1RM',round25(p.e1.squat)+' kg'],
+  ['ベンチプレス e1RM',round25(p.e1.bench)+' kg'],
+  ['デッドリフト e1RM',round25(p.e1.deadlift)+' kg']
+ ].forEach(m=>ov.push([xlc(m[0],{font:{bold:true,sz:10},fill:{fgColor:{rgb:XL_GRAY}}}),xlc(m[1])]));
+ ov.push([]);
+ ov.push([xlc('記録の付け方',{font:{bold:true,sz:12,color:{rgb:XL_RED}}})]);
+ ['・各週のシートに、実施重量・実施レップ・体感RPEを記入して送ってください。',
+  '・RPEは「あと何回できるか」の感覚です（10=限界 / 9=あと1回 / 8=あと2回 / 7=あと3回 / 6=まだ余裕）。',
+  '・指定RPEに達したらそのセットは終了します。',
+  '・体感RPEが設定より高い日は休息不足のサインです。無理に追い込まず軽めに切り上げてください。',
+  '・痛みや違和感が出た場合は中止し、必要に応じて医療機関を受診してください。',
+  '※本資料はトレーニング提案であり、医療助言ではありません。'
+ ].forEach(t=>ov.push([xlc(t,{font:{sz:10},alignment:{wrapText:true}})]));
+ if(p.notes.length){ov.push([]);
+  ov.push([xlc('故障に関する調整',{font:{bold:true,sz:12,color:{rgb:XL_RED}}})]);
+  p.notes.forEach(n=>ov.push([xlc('・'+n,{font:{sz:10}})]));}
+ const wsOv=XLSX.utils.aoa_to_sheet(ov);
+ wsOv['!cols']=[{wch:22},{wch:60}];
+ XLSX.utils.book_append_sheet(wb,wsOv,'概要');
+
+ p.groups.forEach(g=>{
+  const rows=[];const merges=[];
+  rows.push(XL_HEADERS.map(h=>xlc(h,XL_TH)));
+  g.days.forEach(d=>{
+   merges.push({s:{r:rows.length,c:0},e:{r:rows.length,c:XL_HEADERS.length-1}});
+   rows.push([xlc(d.label,XL_DAYROW)]);
+   d.items.forEach(it=>{
+    const inten=it.rpe!==''?('RPE '+it.rpe):(it.pctTxt||'');
+    const wv=(typeof it.weight==='number')?it.weight:(it.weight===''?'':String(it.weight));
+    rows.push([xlc(it.name),xlc(it.label),
+      xlc(it.variation&&it.variation.val!=='なし'?it.variation.val:''),
+      xlc(it.sets),xlc(it.reps),xlc(inten),xlc(wv),
+      xlc('',XL_TD_FILL),xlc('',XL_TD_FILL),xlc('',XL_TD_FILL),xlc('',XL_TD_FILL)]);
+   });
+  });
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:26},{wch:11},{wch:14},{wch:6},{wch:9},{wch:9},{wch:10},{wch:9},{wch:9},{wch:8},{wch:24}];
+  ws['!merges']=merges;
+  ws['!rows']=rows.map((r,i)=>({hpt:i===0?20:17}));
+  XLSX.utils.book_append_sheet(wb,ws,g.label.replace(/[\\\/\?\*\[\]:]/g,'-').slice(0,31));
+ });
+ return wb;
+}
+
+function downloadXLSX(){
+ const btn=document.getElementById('xlsxBtn');const orig=btn.textContent;
+ try{
+  btn.textContent='生成中…';btn.disabled=true;
+  const wb=buildWorkbook(PROG);
+  const name=(document.getElementById('clientName').value||'program').trim().replace(/[^\w一-龠ぁ-んァ-ヶー]/g,'_');
+  XLSX.writeFile(wb,name+'_program.xlsx');
+  flash('Excelを保存しました');
+ }catch(e){alert('Excel作成に失敗しました。通信環境をご確認のうえ再度お試しください。');}
+ btn.textContent=orig;btn.disabled=false;
+}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+
+function copyLine(){const p=PROG;const name=(document.getElementById('clientName').value||'').trim();
+ let t=(name?name+'様\n':'')+'【トレーニングプログラム】\n';
+ t+=(p.goal==='bm'?'目標: ボディメイク（筋肥大）':'目標: パワーリフティング')+'\n';
  t+='e1RM  '+LIFTS.map(l=>JP[l]+' '+round25(p.e1[l])+'kg').join(' / ')+'\n';
- p.groups.forEach(g=>{t+='\n■ '+g.label+'\n';
-   g.days.forEach(d=>{t+=' '+d.label+'\n';d.items.forEach(it=>{
+ p.groups.forEach(g=>{t+='\n― '+g.label+' ―\n';
+   g.days.forEach(d=>{t+='\n'+d.label+'\n';d.items.forEach(it=>{
      const vv=it.variation&&it.variation.val!=='なし'?'('+it.variation.val+')':'';
-     const wt=(it.weight!=='RPE基準'&&it.weight!==''&&it.weight!=='—')?'  '+it.weight+'kg':'';
-     const inten=it.rpe!==''?(' @RPE'+it.rpe):(it.pctTxt?' '+it.pctTxt:'');
-     t+='  ・['+it.label+'] '+it.name+vv+'  '+it.sets+'×'+it.reps+inten+wt+'\n';});});});
- t+='\n※指定RPEに達したら止める。体感が設定より重ければ休息不足のサイン。痛みがあれば中止。';
- if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>flash('清書をコピーしました'),()=>fb(t));else fb(t);}
-function fb(t){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');flash('清書をコピーしました');}catch(e){alert('コピー不可');}ta.remove();}
+     const wt=(it.weight!=='RPE基準'&&it.weight!==''&&it.weight!=='—')?it.weight+'kg':(it.weight===''?'コーチ記入':it.weight);
+     const inten=it.rpe!==''?('RPE'+it.rpe):(it.pctTxt||'');
+     t+='・'+it.name+vv+'['+it.label+']  '+it.sets+'set×'+it.reps+'rep '+inten+' '+wt+'\n';});});});
+ t+='\n※指定RPEで止める。重く感じたら休息不足のサイン。痛みが出たら中止してください。';
+ if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>flash('LINE用にコピーしました'),()=>fb(t));else fb(t);}
+function fb(t){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');flash('コピーしました');}catch(e){alert('コピー不可');}ta.remove();}
 function flash(m){const d=document.createElement('div');d.textContent=m;d.style.cssText='position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--red);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;z-index:99';document.body.appendChild(d);setTimeout(()=>d.remove(),1600);}
-function printAll(){document.querySelectorAll('.weekblock').forEach(b=>b.style.display='block');window.print();
- setTimeout(()=>{const act=[...document.querySelectorAll('.tab')].findIndex(t=>t.classList.contains('active'));showGroup(act<0?0:act);},500);}
+
+function reportItemRow(it){
+ const z={z9:'#d11f2d',z8:'#2f74c0',z7:'#d4a017',z6:'#7a8088'}[zoneClass(it.rpe)];
+ const vv=it.variation&&it.variation.val!=='なし'?'　<span style="color:#666">('+esc(it.variation.val)+')</span>':'';
+ const inten=(it.rpe!==''?('RPE '+it.rpe):'')+(it.pctTxt?(' '+it.pctTxt):'');
+ const wtxt=it.weight===''?'<span style="color:#b33">コーチ記入</span>':(it.weight==='RPE基準'?'RPE基準':esc(it.weight)+' kg');
+ const sub=[];
+ if(it.subbed)sub.push('代替種目・重量はコーチ確認');
+ if(it.hint)sub.push(it.hint);
+ if(it.warmup)sub.push(it.warmup);
+ const border=it.k==='top'?'border-top:2px solid #ddd;':'';
+ return `<tr style="${border}">
+   <td style="padding:7px 8px;font-weight:600;font-size:12.5px;">${esc(it.name)}${vv}
+     <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.03em;">${esc(it.label)}</div>
+     ${sub.length?'<div style="font-size:10px;color:#999;margin-top:2px;line-height:1.4">'+sub.map(esc).join('<br>')+'</div>':''}
+   </td>
+   <td style="padding:7px 8px;font-size:12.5px;white-space:nowrap;"><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${z};margin-right:5px;"></span>${it.reps}レップ ${esc(inten)}</td>
+   <td style="padding:7px 8px;font-size:12.5px;text-align:center;">${it.sets} set</td>
+   <td style="padding:7px 8px;font-size:12.5px;text-align:right;white-space:nowrap;">${wtxt}</td>
+ </tr>`;
+}
+
+function buildReportHTML(p){
+ const name=(document.getElementById('clientName').value||'').trim();
+ const today=new Date();const dateStr=today.getFullYear()+'/'+(today.getMonth()+1)+'/'+today.getDate();
+ const goalLabel=p.goal==='bm'?'ボディメイク（筋肥大）':'パワーリフティング（筋力）';
+ const summary=[['スケジュール',p.days==='cycle8'?'8日サイクル':'週'+p.days+'回'],
+   ['デロード','無し（RPE波動）']];
+ if(p.goal==='pl')summary.push(['トップRPE上限',String(p.ceiling)]);
+ LIFTS.forEach(l=>summary.push([JP[l]+' e1RM',round25(p.e1[l])+'kg']));
+ const sumHtml=summary.map(s=>`<div style="display:inline-block;min-width:140px;margin:0 18px 6px 0;">
+   <div style="font-size:10px;color:#999;letter-spacing:.05em;">${esc(s[0])}</div>
+   <div style="font-size:14px;font-weight:700;font-family:ui-monospace,Menlo,monospace;">${esc(s[1])}</div></div>`).join('');
+
+ const philText=p.goal==='bm'
+  ?'成長の主役は筋肥大種目です。コンパウンドは8レップ、アイソレーションは10レップを目安に、全セット達成できたら次回重量を上げます。BIG3は技術維持のため軽めに毎週続けます（追い込みません）。RPEは「あと何回できるか」の感覚（10=限界、8=あと2回、6=まだ余裕）。設定より重く感じる日は休息不足のサインなので、無理せず軽めに切り上げてください。'
+  :'BIG3のトップは今日の調子の確認、バックオフが技術と筋力を伸ばす主作業です。筋肉を大きくする役割は補助種目（基本8レップ）が担当します。デロード週は設けず、RPEの波で回復を管理します。RPEは「あと何回できるか」の感覚（10=限界、8=あと2回、6=まだ余裕）。設定より重く感じる日は休息不足のサインなので、無理せず軽めに切り上げてください。';
+
+ const groupsHtml=p.groups.map((g,gi)=>{
+  const daysHtml=g.days.map(d=>`
+   <div style="margin-bottom:14px;">
+     <div style="font-size:12.5px;font-weight:800;color:#c41e2a;letter-spacing:.04em;border-bottom:1.5px solid #eee;padding-bottom:4px;margin-bottom:2px;">${esc(d.label)}</div>
+     <table style="width:100%;border-collapse:collapse;">
+       <thead><tr style="border-bottom:1px solid #ddd;">
+         <th style="text-align:left;font-size:10px;color:#999;padding:4px 8px;">種目</th>
+         <th style="text-align:left;font-size:10px;color:#999;padding:4px 8px;">強度</th>
+         <th style="text-align:center;font-size:10px;color:#999;padding:4px 8px;">セット</th>
+         <th style="text-align:right;font-size:10px;color:#999;padding:4px 8px;">重量</th>
+       </tr></thead>
+       <tbody>${d.items.map(reportItemRow).join('')}</tbody>
+     </table>
+   </div>`).join('');
+  return `<div style="${gi>0?'page-break-before:always;':''}padding-top:${gi>0?'18px':'0'};">
+    <div style="font-size:15px;font-weight:800;color:#111;margin-bottom:10px;">${esc(g.label)}</div>
+    ${daysHtml}
+  </div>`;
+ }).join('');
+
+ const notesHtml=p.notes.length?`<div style="background:#fbeceb;border:1px solid #e3b8b8;border-radius:6px;padding:10px 14px;margin:14px 0;font-size:11.5px;color:#333;">
+   <b style="color:#b33">故障に関する調整</b><ul style="margin:5px 0 0;padding-left:16px;">${p.notes.map(n=>'<li>'+esc(n)+'</li>').join('')}</ul></div>`:'';
+
+ return `<div style="font-family:-apple-system,'Hiragino Sans','Yu Gothic',sans-serif;color:#111;background:#fff;padding:36px 34px;width:780px;">
+   <div style="border-bottom:3px solid #c41e2a;padding-bottom:12px;margin-bottom:16px;">
+     <div style="font-size:10px;letter-spacing:.2em;color:#999;text-transform:uppercase;font-weight:700;">Training Program</div>
+     <div style="font-size:22px;font-weight:800;margin-top:2px;">${name?esc(name)+' 様の':''}トレーニングプログラム</div>
+     <div style="font-size:11px;color:#888;margin-top:2px;">目標: ${esc(goalLabel)} ／ 作成日: ${dateStr}</div>
+   </div>
+   <div style="margin-bottom:16px;">${sumHtml}</div>
+   <div style="background:#f7f7f7;border-radius:8px;padding:12px 16px;margin-bottom:18px;font-size:11.5px;line-height:1.7;color:#333;">${esc(philText)}</div>
+   ${groupsHtml}
+   ${notesHtml}
+   <div style="font-size:10px;color:#999;border-top:1px solid #eee;padding-top:10px;margin-top:16px;line-height:1.6;">
+   指定RPEに達したらそのセットは止めてください。同一RPEでも体調により重量は前後します。本資料はトレーニング提案であり、医療助言ではありません。痛みや不調がある場合は中止し、必要に応じて医療機関を受診してください。
+   </div>
+ </div>`;
+}
+
+function downloadPDF(){
+ const btn=document.getElementById('pdfBtn');const orig=btn.textContent;
+ btn.textContent='生成中…';btn.disabled=true;
+ const root=document.getElementById('reportRoot');
+ root.innerHTML=buildReportHTML(PROG);
+ const name=(document.getElementById('clientName').value||'program').trim().replace(/[^\w一-龠ぁ-んァ-ヶー]/g,'_');
+ const opt={margin:0,filename:name+'_program.pdf',
+   image:{type:'jpeg',quality:0.95},
+   html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff'},
+   jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+   pagebreak:{mode:['css','avoid-all']}};
+ html2pdf().set(opt).from(root).save().then(()=>{
+   btn.textContent=orig;btn.disabled=false;root.innerHTML='';flash('PDFを保存しました');
+ }).catch(e=>{btn.textContent=orig;btn.disabled=false;alert('PDF作成に失敗しました。もう一度お試しください。');});
+}
 
 /* ===== client persistence ===== */
 function lsGet(){try{return JSON.parse(localStorage.getItem('plgen_v3')||'{}')}catch(e){return {}}}
@@ -735,15 +1003,47 @@ function deleteClient(){const name=document.getElementById('clientList').value;i
 function exportClients(){const data=lsGet();
  const cur=document.getElementById('clientName').value.trim();
  if(cur)data[cur]=collectForm();
+ data.__library=LIB;
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,1)],{type:'application/json'}));
  a.download='clients.json';document.body.appendChild(a);a.click();a.remove();}
 function importClients(inp){const f=inp.files[0];if(!f)return;
  const r=new FileReader();
  r.onload=()=>{try{const incoming=JSON.parse(r.result);const data=lsGet();
+   if(incoming.__library){LIB=incoming.__library;libSave();renderLib();delete incoming.__library;}
    Object.keys(incoming).forEach(k=>data[k]=incoming[k]);
-   lsSet(data);refreshClientList();flash('読み込みました ('+Object.keys(incoming).length+'件)');
+   lsSet(data);refreshClientList();flash('読み込みました');
   }catch(e){alert('JSONの形式が不正です');}};
  r.readAsText(f);inp.value='';}
+
+/* ===== 種目ライブラリ UI ===== */
+const AVOIDJP={back:'腰',shoulder:'肩',knee:'膝',elbow:'肘'};
+function renderLib(){
+ const t=document.getElementById('libTable');if(!t)return;
+ let h='<table style="border-collapse:collapse;font-size:12px;min-width:640px"><thead><tr>'
+  +['種目名','カテゴリ','用途','レップ','故障除外',''].map(x=>'<th style="text-align:left;padding:4px 6px;color:var(--mut);font-size:10px">'+x+'</th>').join('')+'</tr></thead><tbody>';
+ LIB.forEach((e,i)=>{
+  h+='<tr>';
+  h+=`<td style="padding:3px 4px"><input style="width:180px;font-size:12px;padding:5px 6px" value="${e.n.replace(/"/g,'&quot;')}" onchange="libEdit(${i},'n',this.value)"></td>`;
+  h+=`<td style="padding:3px 4px"><select style="width:110px;font-size:12px;padding:5px 4px" onchange="libEdit(${i},'c',this.value)">${CATS.map(c=>`<option value="${c[0]}" ${c[0]===e.c?'selected':''}>${c[1]}</option>`).join('')}</select></td>`;
+  h+='<td style="padding:3px 4px;white-space:nowrap">'+[['backoff','BO'],['stick','弱点'],['hyper','肥大']].map(u=>
+    `<label style="font-size:11px;margin-right:6px;color:var(--ink)"><input type="checkbox" style="width:auto" ${e.u.includes(u[0])?'checked':''} onchange="libUse(${i},'${u[0]}',this.checked)">${u[1]}</label>`).join('')+'</td>';
+  h+=`<td style="padding:3px 4px"><input type="number" style="width:52px;font-size:12px;padding:5px 4px" value="${e.r}" onchange="libEdit(${i},'r',parseInt(this.value)||8)"></td>`;
+  h+='<td style="padding:3px 4px;white-space:nowrap">'+Object.keys(AVOIDJP).map(a=>
+    `<label style="font-size:11px;margin-right:5px;color:var(--ink)"><input type="checkbox" style="width:auto" ${e.a.includes(a)?'checked':''} onchange="libAvoid(${i},'${a}',this.checked)">${AVOIDJP[a]}</label>`).join('')+'</td>';
+  h+=`<td style="padding:3px 4px"><button class="btn ghost small" style="padding:5px 9px" onclick="libDel(${i})">削除</button></td>`;
+  h+='</tr>';
+ });
+ h+='</tbody></table>';
+ t.innerHTML=h;
+}
+function libEdit(i,f,v){LIB[i][f]=v;libSave();}
+function libUse(i,u,on){const a=LIB[i].u;const j=a.indexOf(u);
+ if(on&&j<0)a.push(u);if(!on&&j>=0)a.splice(j,1);libSave();}
+function libAvoid(i,t,on){const a=LIB[i].a;const j=a.indexOf(t);
+ if(on&&j<0)a.push(t);if(!on&&j>=0)a.splice(j,1);libSave();}
+function libDel(i){if(!confirm('「'+LIB[i].n+'」を削除しますか？'))return;LIB.splice(i,1);libSave();renderLib();}
+function libAddRow(){LIB.push({n:'新しい種目',c:'chest',u:['hyper'],r:8,a:[]});libSave();renderLib();
+ const t=document.getElementById('libTable');t.scrollTop=t.scrollHeight;}
 
 function loadSample(){const set=(id,v)=>document.getElementById(id).value=v;
  set('clientName','サンプル');set('exp','intermediate');set('days','cycle8');set('time','120');set('topCeiling','9');
@@ -761,5 +1061,5 @@ function loadSampleBM(){const set=(id,v)=>document.getElementById(id).value=v;
  set('w_deadlift',150);set('r_deadlift',5);set('rpe_deadlift',8);
  syncGoalUI();updE1();generate();}
 
-buildLiftInputs();refreshClientList();syncGoalUI();
+libLoad();buildLiftInputs();refreshClientList();syncGoalUI();renderLib();
 </script>
