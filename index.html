@@ -419,10 +419,10 @@ function mkTopPct(I,lift,pct,inj){
  const w=iv.sub?null:round25(I.e1[lift]*pct/100*(reps===3?0.94:1));
  return {k:'top',lift,name,label:novice?'トップセット':'トップシングル',reps,sets:1,rpe:'',pctTxt:pct+'%',
    weight:w===null?'':w,editW:true,subbed:!!iv.sub,variation:null,warmup:w?warmupTxt(w):'',sep:true};}
-function mkBackoff(I,lift,kind,inj){
+function mkBackoff(I,lift,kind,inj,setsOv){
  const iv=injuryFor(lift,inj);const _is=injSetOf(inj);
  const pct=I.boPct[lift][kind];
- const cfg=kind==='P'?{reps:3,sets:5}:{reps:5,sets:5};
+ const cfg=kind==='P'?{reps:3,sets:setsOv||5}:{reps:5,sets:setsOv||5};
  const name=iv.sub?(JP[lift]+' → '+iv.sub):JP[lift];
  const w=iv.sub?null:round25(I.e1[lift]*pct/100);
  return {k:'backoff',lift,name,label:'バックオフ',reps:cfg.reps,sets:Math.max(1,Math.round(cfg.sets*iv.mult)),
@@ -495,6 +495,16 @@ function buildProgramPL(I){
  }else{
   const sessions=SPLITS[parseInt(I.days)];
   const pseq={squat:0,bench:0,deadlift:0},sseq={squat:0,bench:0,deadlift:0};
+  // 週あたりバックオフ量を頻度・回復・経験・体重方針でスケール
+  const liftSess={squat:0,bench:0,deadlift:0};
+  sessions.forEach(s=>s.slots.forEach(([l])=>liftSess[l]++));
+  const WK_TARGET={bench:16,squat:13,deadlift:10};
+  const recM={high:1.15,med:1.0,low:0.85}[rec.band];
+  const expM={novice:0.8,intermediate:1.0,advanced:1.1}[I.exp];
+  const wgM={cut:0.85,maintain:1.0,bulk:1.05}[I.wgoal];
+  const boSets={};
+  LIFTS.forEach(l=>{boSets[l]=liftSess[l]?Math.min(6,Math.max(2,Math.round(WK_TARGET[l]*recM*expM*wgM/liftSess[l]))):0;});
+  var weeklyBO={};LIFTS.forEach(l=>weeklyBO[l]=boSets[l]*liftSess[l]);
   for(let wk=0;wk<4;wk++){
    const days=[];
    sessions.forEach((s,si)=>{
@@ -504,22 +514,22 @@ function buildProgramPL(I){
        const idx=I.waveMode==='session'?pseq[lift]++:wk;
        const raw=lift==='bench'?PWAVE[idx%4]:SDWAVE[idx%4];
        items.push(mkTop(I,lift,cl(raw),inj));
-       items.push(mkBackoff(I,lift,'P',inj));
+       items.push(mkBackoff(I,lift,'P',inj,boSets[lift]));
        const v=mkVar(I,lift,ceiling,inj);if(v)items.push(v);
      }else{
        if(I.secMode==='technique'){items.push(mkTop(I,lift,6,inj,{tech:true}));}
        else{const idx=I.waveMode==='session'?sseq[lift]++:wk;items.push(mkTopPct(I,lift,SECPCT[idx%4],inj));}
-       items.push(mkBackoff(I,lift,'S',inj));
+       items.push(mkBackoff(I,lift,'S',inj,boSets[lift]));
      }
     });
-    pushAcc(items,I,si,accCount,inj);
+    pushAcc(items,I,si,Math.max(1,accCount-Math.max(0,s.slots.length-2)),inj);
     days.push({label:s.label,items});
    });
    groups.push({label:'Week '+(wk+1),days});
   }
  }
  const notes=[];inj.forEach(k=>notes.push('【'+({back:'腰',shoulder:'肩',knee:'膝',elbow:'肘・手首'}[k])+'】'+INJURY[k].note));
- return {goal:'pl',ceiling,rec,e1:I.e1,days:I.days,groups,notes,accCount,waveMode:I.waveMode,secMode:I.secMode,novice:I.exp==='novice'};
+ return {goal:'pl',ceiling,rec,e1:I.e1,days:I.days,groups,notes,accCount,waveMode:I.waveMode,secMode:I.secMode,novice:I.exp==='novice',weeklyBO:(typeof weeklyBO!=='undefined'?weeklyBO:null)};
 }
 
 /* ===== Bodymake (hypertrophy) engine ===== */
@@ -690,6 +700,7 @@ function renderOutput(){
    sm.push(['RPE上限','トップ'+p.ceiling],
      ['波の単位',p.days==='cycle8'?'セッション(固定)':({session:'セッション',week:'週'}[p.waveMode])],
      ['回復',{high:'高',med:'中',low:'低'}[p.rec.band]],['補助',p.accCount+'種目/回'],['デロード','無し（波動）']);
+   if(p.weeklyBO)sm.push(['週バックオフ','S'+p.weeklyBO.squat+' / B'+p.weeklyBO.bench+' / D'+p.weeklyBO.deadlift+' set',true]);
  }
  LIFTS.forEach(l=>sm.push([JP[l]+' e1RM',round25(p.e1[l])+'kg',true]));
  document.getElementById('summary').innerHTML=sm.map(x=>`<div class="sm"><div class="k">${x[0]}</div><div class="v ${x[2]?'mono':''}">${x[1]}</div></div>`).join('');
@@ -742,7 +753,7 @@ function renderOutput(){
   `<div style="font-size:11px;letter-spacing:.1em;color:var(--mut);text-transform:uppercase;font-weight:700;margin-bottom:4px">トップシングル RPE波（位相をずらして疲労分散）</div>`+waveHtml;
 
  document.getElementById('tabs').innerHTML=p.groups.map((g,i)=>`<div class="tab ${i===0?'active':''}" onclick="showGroup(${i})">${g.label}</div>`).join('');
- showGroup(0);
+ renderAllGroups();showGroup(0);
 
  const nb=document.getElementById('notesBox');
  if(p.notes.length){nb.style.display='block';nb.innerHTML='<b>故障に関する自動調整</b><ul>'+p.notes.map(n=>'<li>'+n+'</li>').join('')+'</ul>';}else nb.style.display='none';
@@ -752,7 +763,6 @@ function renderOutput(){
 function showGroup(gi){
  document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',j===gi));
  document.querySelectorAll('.weekblock').forEach((b,j)=>b.style.display=j===gi?'block':'none');
- if(!document.querySelector('.weekblock')){renderAllGroups();showGroup(gi);}
 }
 function renderAllGroups(){
  const p=PROG;
