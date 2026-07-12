@@ -472,6 +472,10 @@ function buildProgramPL(I){
  const ceiling=I.topCeiling;
  const rec=recovery(I.sleep,I.stress);
  const ageM=ageMult(I.age),sexM=sexMult(I.sex);
+ const recMt={high:1.15,med:1.0,low:0.85}[rec.band];
+ const expMt={novice:0.8,intermediate:1.0,advanced:1.1}[I.exp];
+ const wgMt={cut:0.85,maintain:1.0,bulk:1.05}[I.wgoal];
+ const adj={age:ageM,sex:sexM,rec:recMt,exp:expMt,wgoal:wgMt,total:+(ageM*sexM*recMt*expMt*wgMt).toFixed(2)};
  const inj=[];['back','shoulder','knee','elbow'].forEach(k=>{if(I['inj_'+k]!=='none')inj.push(k);});
  const accCount=Math.max(1,Math.round(({60:2,75:3,90:4,120:5,180:8}[I.time]+(I.wgoal==='bulk'?1:0)+rec.adj)*ageM*sexM));
  const cl=x=>Math.min(x,ceiling);
@@ -542,7 +546,7 @@ function buildProgramPL(I){
   }
  }
  const notes=[];inj.forEach(k=>notes.push('【'+({back:'腰',shoulder:'肩',knee:'膝',elbow:'肘・手首'}[k])+'】'+INJURY[k].note));
- return {goal:'pl',ceiling,rec,e1:I.e1,days:I.days,groups,notes,accCount,waveMode:I.waveMode,secMode:I.secMode,novice:I.exp==='novice',weeklyBO:(typeof weeklyBO!=='undefined'?weeklyBO:null),adjMult:+(ageM*sexM).toFixed(2)};
+ return {goal:'pl',ceiling,rec,e1:I.e1,days:I.days,groups,notes,accCount,waveMode:I.waveMode,secMode:I.secMode,novice:I.exp==='novice',weeklyBO:(typeof weeklyBO!=='undefined'?weeklyBO:null),adj};
 }
 
 /* ===== Bodymake (hypertrophy) engine ===== */
@@ -585,6 +589,7 @@ function buildProgramBM(I){
  const ceiling=I.topCeiling;
  const rec=recovery(I.sleep,I.stress);
  const ageM=ageMult(I.age),sexM=sexMult(I.sex);
+ const adj={age:ageM,sex:sexM,rec:{high:1.15,med:1.0,low:0.85}[rec.band],exp:1,wgoal:1,total:+(ageM*sexM).toFixed(2)};
  const inj=[];['back','shoulder','knee','elbow'].forEach(k=>{if(I['inj_'+k]!=='none')inj.push(k);});
  const exCount=Math.max(2,Math.round(({60:4,75:5,90:6,120:8,180:10}[I.time]
    +(I.wgoal==='bulk'?1:(I.wgoal==='cut'?-1:0))+rec.adj)*ageM*sexM));
@@ -632,7 +637,7 @@ function buildProgramBM(I){
  }
  const notes=[];inj.forEach(k=>notes.push('【'+({back:'腰',shoulder:'肩',knee:'膝',elbow:'肘・手首'}[k])+'】'+INJURY[k].note));
  return {goal:'bm',ceiling,rec,e1:I.e1,days:I.days,groups,notes,accCount:exCount,
-   waveMode:'session',secMode:'-',novice:I.exp==='novice',partWeekly,priPart:I.priPart,adjMult:+(ageM*sexM).toFixed(2)};
+   waveMode:'session',secMode:'-',novice:I.exp==='novice',partWeekly,priPart:I.priPart,adj};
 }
 
 /* ===================== UI ===================== */
@@ -716,7 +721,12 @@ function renderOutput(){
      ['回復',{high:'高',med:'中',low:'低'}[p.rec.band]],['補助',p.accCount+'種目/回'],['デロード','無し（波動）']);
    if(p.weeklyBO)sm.push(['週バックオフ','S'+p.weeklyBO.squat+' / B'+p.weeklyBO.bench+' / D'+p.weeklyBO.deadlift+' set',true]);
  }
- if(p.adjMult&&p.adjMult!==1)sm.push(['年齢・性別補正','×'+p.adjMult]);
+ if(p.adj){
+   sm.push(['年齢補正','×'+p.adj.age]);
+   sm.push(['性別補正','×'+p.adj.sex]);
+   sm.push(['回復補正','×'+p.adj.rec]);
+   sm.push(['ボリューム総合補正','×'+p.adj.total,true]);
+ }
  LIFTS.forEach(l=>sm.push([JP[l]+' e1RM',round25(p.e1[l])+'kg',true]));
  document.getElementById('summary').innerHTML=sm.map(x=>`<div class="sm"><div class="k">${x[0]}</div><div class="v ${x[2]?'mono':''}">${x[1]}</div></div>`).join('');
 
