@@ -77,6 +77,23 @@
   details.adv{border:1px dashed var(--line);border-radius:8px;padding:0 12px;margin-top:12px}
   details.adv summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--mut);padding:10px 0}
   details.adv .grid{padding-bottom:12px}
+  .pf-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px}
+  .pf-title{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--redink);font-weight:800;margin-bottom:10px}
+  .pf-lift{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+  .pf-lift:first-of-type{border-top:none}
+  .pf-lift .nm{font-weight:700}
+  .pf-lift .num{font-family:var(--mono);color:var(--mut);font-size:13px}
+  .lvchip{display:inline-block;padding:2px 12px;border-radius:999px;font-weight:800;font-size:12px;white-space:nowrap}
+  .lv0{background:#3a3f47;color:#cfd4da}.lv1{background:#2f74c0;color:#fff}
+  .lv2{background:#d4a017;color:#1a1a1a}.lv3{background:#d11f2d;color:#fff}
+  .pf-next{font-size:11px;color:var(--mut);text-align:right}
+  .pf-barrow{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:12px}
+  .pf-bartrack{flex:1;height:10px;background:var(--panel2);border-radius:5px;position:relative;overflow:hidden}
+  .pf-barfill{position:absolute;top:0;bottom:0;border-radius:5px}
+  .pf-list{margin:4px 0 0;padding-left:18px;font-size:13px}
+  .pf-list li{margin:3px 0}
+  #coachNote{width:100%;min-height:90px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:10px;font-family:var(--sans);font-size:14px;box-sizing:border-box}
+  #bandsJson{width:100%;min-height:140px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:8px;font-family:var(--mono);font-size:11px;box-sizing:border-box}
   @media(max-width:520px){h1{font-size:22px}}
 </style>
 
@@ -207,6 +224,14 @@
           <button class="btn ghost small" onclick="if(confirm('ライブラリを初期状態に戻しますか？追加した種目は消えます。'))(libResetDefault(),renderLib())">初期状態に戻す</button>
         </div>
       </details>
+      <details class="adv"><summary>STRENGTH PROFILE のレベル判定基準（上級者向け・JSON編集）</summary>
+        <div class="hint" style="margin:4px 0 8px">体重帯(bw)と、種目ごとの[中級,上級,エリート]の体重倍数しきい値です。編集して保存すると判定に反映されます。</div>
+        <textarea id="bandsJson"></textarea>
+        <div style="display:flex;gap:8px;margin:8px 0 12px">
+          <button class="btn ghost small" onclick="bandsSaveFromBox()">基準を保存</button>
+          <button class="btn ghost small" onclick="bandsReset()">初期値に戻す</button>
+        </div>
+      </details>
     </section>
 
     <div id="errbox"></div>
@@ -225,6 +250,11 @@
       <button class="btn ghost" onclick="downloadXLSX()" id="xlsxBtn">📊 Excel (記録用) を保存</button>
     </div>
     <div class="summary" id="summary"></div>
+    <div class="tabs" id="viewSwitch">
+      <div class="tab active" id="vwProg" onclick="showView('prog')">プログラム</div>
+      <div class="tab" id="vwProf" onclick="showView('prof')">STRENGTH PROFILE</div>
+    </div>
+    <div id="profileView" style="display:none"></div>
     <details class="phil"><summary>このプログラムの考え方・RPEの説明（クライアント向け）</summary>
       <div class="body" id="philBody"></div>
     </details>
@@ -695,10 +725,10 @@ function gather(){const mode=document.getElementById('inputMode').value;const e1
    sp_squat:g('sp_squat'),sp_bench:g('sp_bench'),sp_deadlift:g('sp_deadlift'),
    inj_back:g('inj_back'),inj_shoulder:g('inj_shoulder'),inj_knee:g('inj_knee'),inj_elbow:g('inj_elbow'),e1}};}
 
-let PROG=null;
+let PROG=null;let PROFILE=null;
 function generate(){const {err,I}=gather();const eb=document.getElementById('errbox');
  if(err){eb.innerHTML='<div class="err">'+err+'</div>';return;}eb.innerHTML='';
- PROG=buildProgram(I);renderOutput();
+ PROG=buildProgram(I);PROFILE=buildProfile(I);renderOutput();renderProfile();showView('prog');
  document.getElementById('form').style.display='none';document.getElementById('out').style.display='block';window.scrollTo(0,0);}
 function backToForm(){document.getElementById('out').style.display='none';document.getElementById('form').style.display='block';window.scrollTo(0,0);}
 function esc2(x){return String(x).replace(/</g,'&lt;');}
@@ -1033,6 +1063,214 @@ function downloadPDF(){
  }).catch(e=>{btn.textContent=orig;btn.disabled=false;alert('PDF作成に失敗しました。もう一度お試しください。');});
 }
 
+/* ===== STRENGTH PROFILE ===== */
+const DEFAULT_BANDS={
+ m:{bw:[70,90],
+  squat:[[1.4,1.8,2.2],[1.3,1.7,2.0],[1.2,1.5,1.8]],
+  bench:[[1.0,1.3,1.6],[0.95,1.2,1.5],[0.85,1.1,1.35]],
+  deadlift:[[1.7,2.2,2.6],[1.6,2.0,2.4],[1.4,1.8,2.2]]},
+ f:{bw:[55,70],
+  squat:[[1.1,1.5,1.9],[1.0,1.4,1.75],[0.9,1.25,1.6]],
+  bench:[[0.6,0.85,1.1],[0.55,0.8,1.0],[0.5,0.7,0.9]],
+  deadlift:[[1.4,1.8,2.2],[1.3,1.7,2.05],[1.15,1.5,1.85]]}};
+const LEVEL_NAMES=['スターター','中級','上級','エリート'];
+const IDEAL_RATIO={bench:0.72,deadlift:1.2};
+let BANDS=null;
+function bandsLoad(){try{const x=localStorage.getItem('plgen_bands');if(x){BANDS=JSON.parse(x);return;}}catch(e){}
+ BANDS=JSON.parse(JSON.stringify(DEFAULT_BANDS));}
+function renderBandsBox(){const b=document.getElementById('bandsJson');if(b)b.value=JSON.stringify(BANDS,null,1);}
+function bandsSaveFromBox(){try{
+ const v=JSON.parse(document.getElementById('bandsJson').value);
+ if(!v.m||!v.f||!v.m.squat)throw 0;
+ BANDS=v;try{localStorage.setItem('plgen_bands',JSON.stringify(BANDS));}catch(e){}
+ flash('基準を保存しました');
+}catch(e){alert('JSONの形式が正しくありません。修正するか「初期値に戻す」を押してください。');}}
+function bandsReset(){BANDS=JSON.parse(JSON.stringify(DEFAULT_BANDS));
+ try{localStorage.setItem('plgen_bands',JSON.stringify(BANDS));}catch(e){}
+ renderBandsBox();flash('初期値に戻しました');}
+
+function bwBandIdx(cfg,bw){return bw<cfg.bw[0]?0:(bw<=cfg.bw[1]?1:2);}
+function levelOf(mult,thr){return mult>=thr[2]?3:(mult>=thr[1]?2:(mult>=thr[0]?1:0));}
+
+function buildProfile(I){
+ const cfg=(BANDS||DEFAULT_BANDS)[I.sex]||(BANDS||DEFAULT_BANDS).m;
+ const bi=bwBandIdx(cfg,I.bw);
+ const lifts={};
+ LIFTS.forEach(l=>{
+  const e=I.e1[l]||0;
+  if(e<=0||I.bw<=0){lifts[l]={na:true};return;}
+  const mult=e/I.bw;const thr=cfg[l][bi];const lv=levelOf(mult,thr);
+  let nextKg=null,nextName=null;
+  if(lv<3){nextName=LEVEL_NAMES[lv+1];nextKg=Math.max(0,round25(thr[lv]*I.bw)-round25(e));}
+  lifts[l]={na:false,e1:round25(e),mult:+mult.toFixed(2),level:lv,levelName:LEVEL_NAMES[lv],nextName,nextKg};
+ });
+ const valid=LIFTS.filter(l=>!lifts[l].na);
+ let balance=null;
+ if(valid.length===3){
+  const dev={squat:0,
+   bench:(I.e1.bench/I.e1.squat)/IDEAL_RATIO.bench-1,
+   deadlift:(I.e1.deadlift/I.e1.squat)/IDEAL_RATIO.deadlift-1};
+  const mean=(dev.squat+dev.bench+dev.deadlift)/3;
+  const rel={};LIFTS.forEach(l=>rel[l]=+((dev[l]-mean)*100).toFixed(1));
+  const sorted=LIFTS.slice().sort((a,b)=>rel[b]-rel[a]);
+  const spread=rel[sorted[0]]-rel[sorted[2]];
+  balance={rel,strongest:sorted[0],growth:sorted[2],even:spread<=10,spread:+spread.toFixed(1)};
+ }
+ const recPts=[];let recScore=0;
+ if(I.sleep==='good'){recScore++;recPts.push('睡眠が安定しているのは大きな武器です');}
+ else if(I.sleep==='poor'){recScore--;recPts.push('睡眠を少し増やせると、同じ練習からより多く伸ばせます');}
+ if(I.stress==='low'){recScore++;recPts.push('ストレス環境が良好で、回復に有利です');}
+ else if(I.stress==='high'){recScore--;recPts.push('多忙な時期はプログラム側で量を調整して守ります');}
+ if(I.age<40){recScore++;}else if(I.age>=50){recPts.push('回復ペースに合わせた設計で、長く伸ばしていけます');recScore--;}
+ const recBand=recScore>=2?'良好':(recScore<=-1?'要工夫':'標準');
+ const strengths=[];const growth=[];
+ if(valid.length){
+  const best=valid.slice().sort((a,b)=>lifts[b].level-lifts[a].level||lifts[b].mult-lifts[a].mult)[0];
+  strengths.push(JP[best]+'（'+lifts[best].levelName+'帯・体重比'+lifts[best].mult+'倍）');
+ }
+ if(balance&&!balance.even)strengths.push(JP[balance.strongest]+'の比率が高く、明確な得意種目です');
+ if(recBand==='良好')strengths.push('回復環境が良く、トレーニング量を積める土台があります');
+ if(parseInt(I.days)>=5||I.days==='cycle8')strengths.push('高頻度で練習できる環境は、技術習得に有利です');
+ if(balance&&!balance.even)growth.push(JP[balance.growth]+'は伸びしろが最も大きい種目です');
+ LIFTS.forEach(l=>{const sp=I['sp_'+l];if(sp&&sp!=='none')growth.push(JP[l]+'の強化ポイントが特定できており、プログラムに対策を組み込めます');});
+ if(recBand==='要工夫')growth.push('生活面の回復を少し整えるだけで、伸びの効率が上がる余地があります');
+ if(!growth.length)growth.push('大きな穴がなく、全体を底上げしていけるバランスです');
+ let type='バランス型：着実に積み上げるスタイルが合っています';
+ if((parseInt(I.days)>=5||I.days==='cycle8')&&recBand==='良好')type='高頻度・高回復型：量をこなして伸ばせる素質があります';
+ else if(I.time<=75)type='効率集中型：短時間で密度の高い練習が合っています';
+ else if(recBand==='要工夫')type='回復重視型：質を絞って確実に伸ばす進め方が合っています';
+ let priority;
+ const spLift=LIFTS.find(l=>I['sp_'+l]&&I['sp_'+l]!=='none');
+ if(spLift)priority=JP[spLift]+'の強化ポイント克服を最優先に置きます';
+ else if(balance&&!balance.even)priority=JP[balance.growth]+'の比率引き上げが当面のテーマです';
+ else priority='現在のバランスを保ったまま、全体の底上げを狙います';
+ const total=valid.reduce((a,l)=>a+round25(I.e1[l]),0);
+ return {lifts,balance,recBand,recPts,strengths:strengths.slice(0,3),growth:growth.slice(0,3),
+  type,priority,total,totalMult:(I.bw>0&&valid.length===3)?+(total/I.bw).toFixed(2):null,
+  name:(document.getElementById('clientName').value||'').trim()};
+}
+
+function showView(v){
+ const prog=v!=='prof';
+ document.getElementById('vwProg').classList.toggle('active',prog);
+ document.getElementById('vwProf').classList.toggle('active',!prog);
+ document.getElementById('profileView').style.display=prog?'none':'block';
+ ['waveWrap','tabs','weekView','notesBox'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=prog?'':'none';});
+ const ph=document.querySelector('details.phil');if(ph)ph.style.display=prog?'':'none';
+ const lg=document.querySelector('.legend');if(lg)lg.style.display=prog?'':'none';
+}
+
+const LIFTBARCOL={squat:'#2f74c0',bench:'#d4a017',deadlift:'#d11f2d'};
+function renderProfile(){
+ const P=PROFILE;if(!P)return;
+ const today=new Date();const dateStr=today.getFullYear()+'/'+(today.getMonth()+1)+'/'+today.getDate();
+ let h=`<div class="pf-card">
+   <div style="font-size:10px;letter-spacing:.24em;color:var(--mut);font-weight:700">STRENGTH PROFILE</div>
+   <div style="font-size:19px;font-weight:800;margin:2px 0">${P.name?esc2(P.name)+' さんの':''}アスリート自己確認シート</div>
+   <div style="font-size:11px;color:var(--mut)">作成日 ${dateStr}${P.totalMult?` ／ BIG3合計 <b style="color:var(--redink)">${P.total}kg</b>（体重比 ×${P.totalMult}）`:''}</div>
+ </div>`;
+ h+='<div class="pf-card"><div class="pf-title">種目別レベル判定</div>';
+ LIFTS.forEach(l=>{const x=P.lifts[l];
+  if(x.na){h+=`<div class="pf-lift"><span class="nm">${JP[l]}</span><span class="num">未測定</span></div>`;return;}
+  h+=`<div class="pf-lift">
+    <div><div class="nm">${JP[l]}</div><div class="num">${x.e1}kg ・ 体重比 ×${x.mult}</div></div>
+    <div style="text-align:right"><span class="lvchip lv${x.level}">${x.levelName}</span>
+    <div class="pf-next">${x.nextKg!==null?('次の'+x.nextName+'まで あと '+x.nextKg+'kg'):'最高帯です'}</div></div>
+  </div>`;});
+ h+='<div class="hint" style="margin-top:8px">※基準は一般的な目安です。体格やレバレッジによる個人差が大きいため、絶対評価ではなく「現在地の目安」として見てください。</div></div>';
+ if(P.balance){
+  h+='<div class="pf-card"><div class="pf-title">BIG3バランス（比率の傾向）</div>';
+  LIFTS.forEach(l=>{const v=P.balance.rel[l];const w=Math.min(50,Math.abs(v)*2.2);
+   h+=`<div class="pf-barrow"><span style="width:88px">${JP[l]}</span>
+     <div class="pf-bartrack"><div class="pf-barfill" style="background:${LIFTBARCOL[l]};${v>=0?'left:50%':'right:50%'};width:${w}%"></div>
+     <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line)"></div></div>
+     <span class="num" style="width:54px;text-align:right;font-family:var(--mono);font-size:12px">${v>0?'+':''}${v}%</span></div>`;});
+  h+= P.balance.even
+    ?'<div class="hint" style="margin-top:6px">3種目の均整がとれています。バランス型の強みです。</div>'
+    :`<div class="hint" style="margin-top:6px">相対的に <b style="color:var(--ink)">${JP[P.balance.strongest]}</b> が得意で、<b style="color:var(--ink)">${JP[P.balance.growth]}</b> に伸びしろがあります（一般的比率 S:B:D≒1:0.72:1.2 との比較）。</div>`;
+  h+='</div>';
+ }
+ h+=`<div class="pf-card"><div class="pf-title">回復環境: ${P.recBand}</div>`;
+ h+= P.recPts.length?('<ul class="pf-list">'+P.recPts.map(t=>'<li>'+esc2(t)+'</li>').join('')+'</ul>'):'<div class="hint">標準的な回復環境です。プログラムは現状に合わせて調整済みです。</div>';
+ h+='</div>';
+ h+=`<div class="pf-card"><div class="pf-title">あなたの強み</div><ul class="pf-list">${P.strengths.map(t=>'<li>'+esc2(t)+'</li>').join('')}</ul>
+   <div class="pf-title" style="margin-top:12px">伸びしろ</div><ul class="pf-list">${P.growth.map(t=>'<li>'+esc2(t)+'</li>').join('')}</ul></div>`;
+ h+=`<div class="pf-card"><div class="pf-title">傾向と当面の方針（参考 — コーチが個別に調整します）</div>
+   <div style="font-size:14px;margin-bottom:4px">${esc2(P.type)}</div>
+   <div style="font-size:14px;color:var(--mut)">${esc2(P.priority)}</div></div>`;
+ const noteKey='plgen_note_'+(P.name||'_');let note='';
+ try{note=localStorage.getItem(noteKey)||'';}catch(e){}
+ h+=`<div class="pf-card"><div class="pf-title">コーチからのメッセージ</div>
+   <textarea id="coachNote" placeholder="ここに追記するとPDFにも反映されます">${esc2(note)}</textarea></div>`;
+ h+='<button class="btn primary" id="pfPdfBtn" onclick="downloadProfilePDF()">📄 STRENGTH PROFILE をPDF保存</button>';
+ document.getElementById('profileView').innerHTML=h;
+ const ta=document.getElementById('coachNote');
+ if(ta)ta.addEventListener('input',()=>{try{localStorage.setItem(noteKey,ta.value);}catch(e){}});
+}
+
+function profileReportHTML(){
+ const P=PROFILE;
+ const today=new Date();const dateStr=today.getFullYear()+'/'+(today.getMonth()+1)+'/'+today.getDate();
+ const LVC=['#8a9099','#2f74c0','#c8951a','#c41e2a'];
+ const note=(document.getElementById('coachNote')||{}).value||'';
+ let lifts='';
+ LIFTS.forEach(l=>{const x=P.lifts[l];if(x.na)return;
+  lifts+=`<tr>
+   <td style="padding:8px 10px;font-weight:700;font-size:13px;border-bottom:1px solid #eee">${esc(JP[l])}</td>
+   <td style="padding:8px 10px;font-family:Menlo,monospace;font-size:13px;border-bottom:1px solid #eee">${x.e1} kg</td>
+   <td style="padding:8px 10px;font-family:Menlo,monospace;font-size:13px;border-bottom:1px solid #eee">×${x.mult}</td>
+   <td style="padding:8px 10px;border-bottom:1px solid #eee"><span style="background:${LVC[x.level]};color:#fff;border-radius:999px;padding:2px 12px;font-size:12px;font-weight:700">${x.levelName}</span></td>
+   <td style="padding:8px 10px;font-size:12px;color:#555;border-bottom:1px solid #eee">${x.nextKg!==null?('次の'+esc(x.nextName)+'まで +'+x.nextKg+'kg'):'最高帯'}</td></tr>`;});
+ let bal='';
+ if(P.balance){
+  bal=`<div style="font-size:12.5px;line-height:1.7;color:#333">`+
+   (P.balance.even?'3種目の均整がとれています。バランス型の強みです。'
+    :`相対的に<b>${esc(JP[P.balance.strongest])}</b>が得意で、<b>${esc(JP[P.balance.growth])}</b>に伸びしろがあります（一般的比率 S:B:D≒1:0.72:1.2 との比較）。`)+`</div>`;
+ }
+ return `<div style="font-family:-apple-system,'Hiragino Sans','Yu Gothic',sans-serif;color:#111;background:#fff;padding:36px 34px;width:780px;">
+  <div style="border-bottom:3px solid #c41e2a;padding-bottom:12px;margin-bottom:16px;">
+   <div style="font-size:11px;letter-spacing:.28em;color:#c41e2a;font-weight:800;">STRENGTH PROFILE</div>
+   <div style="font-size:22px;font-weight:800;margin-top:2px;">${P.name?esc(P.name)+' さんの':''}アスリート自己確認シート</div>
+   <div style="font-size:11px;color:#888;margin-top:2px;">作成日: ${dateStr}${P.totalMult?(' ／ BIG3合計 '+P.total+'kg（体重比 ×'+P.totalMult+'）'):''}</div>
+  </div>
+  <div style="font-size:13px;font-weight:800;color:#c41e2a;margin:14px 0 6px;">種目別レベル判定</div>
+  <table style="width:100%;border-collapse:collapse;">
+   <thead><tr>${['種目','e1RM','体重比','レベル','次のレベルへ'].map(x=>'<th style="text-align:left;font-size:10px;color:#999;padding:4px 10px;border-bottom:1px solid #ddd">'+x+'</th>').join('')}</tr></thead>
+   <tbody>${lifts}</tbody></table>
+  <div style="font-size:10px;color:#999;margin-top:6px;">※基準は一般的な目安であり、体格やレバレッジによる個人差が大きいため、絶対評価ではなく「現在地の目安」です。</div>
+  ${P.balance?('<div style="font-size:13px;font-weight:800;color:#c41e2a;margin:16px 0 6px;">BIG3バランス</div>'+bal):''}
+  <div style="font-size:13px;font-weight:800;color:#c41e2a;margin:16px 0 6px;">回復環境: ${esc(P.recBand)}</div>
+  <ul style="margin:4px 0;padding-left:18px;font-size:12.5px;line-height:1.7;color:#333">${(P.recPts.length?P.recPts:['標準的な回復環境です。プログラムは現状に合わせて調整済みです。']).map(t=>'<li>'+esc(t)+'</li>').join('')}</ul>
+  <div style="display:flex;gap:14px;margin-top:14px;">
+   <div style="flex:1;background:#fbf6f6;border:1px solid #eddada;border-radius:8px;padding:12px 14px;">
+    <div style="font-size:12px;font-weight:800;color:#c41e2a;margin-bottom:6px;">あなたの強み</div>
+    <ul style="margin:0;padding-left:16px;font-size:12px;line-height:1.7;">${P.strengths.map(t=>'<li>'+esc(t)+'</li>').join('')}</ul></div>
+   <div style="flex:1;background:#f6f8fb;border:1px solid #dae3ed;border-radius:8px;padding:12px 14px;">
+    <div style="font-size:12px;font-weight:800;color:#2f5fa0;margin-bottom:6px;">伸びしろ</div>
+    <ul style="margin:0;padding-left:16px;font-size:12px;line-height:1.7;">${P.growth.map(t=>'<li>'+esc(t)+'</li>').join('')}</ul></div>
+  </div>
+  <div style="font-size:13px;font-weight:800;color:#c41e2a;margin:16px 0 6px;">傾向と当面の方針</div>
+  <div style="font-size:12.5px;line-height:1.7;color:#333">${esc(P.type)}<br>${esc(P.priority)}</div>
+  ${note?('<div style="font-size:13px;font-weight:800;color:#c41e2a;margin:16px 0 6px;">コーチからのメッセージ</div><div style="background:#f7f7f7;border-radius:8px;padding:12px 14px;font-size:12.5px;line-height:1.8;white-space:pre-wrap;">'+esc(note)+'</div>'):''}
+  <div style="font-size:10px;color:#999;border-top:1px solid #eee;padding-top:10px;margin-top:18px;line-height:1.6;">本資料はトレーニング指導のための参考情報であり、医療助言ではありません。</div>
+ </div>`;
+}
+function downloadProfilePDF(){
+ const btn=document.getElementById('pfPdfBtn');const orig=btn.textContent;
+ btn.textContent='生成中…';btn.disabled=true;
+ const root=document.getElementById('reportRoot');
+ root.innerHTML=profileReportHTML();
+ const nm=(PROFILE.name||'profile').replace(/[^\w一-龠ぁ-んァ-ヶー]/g,'_');
+ const opt={margin:0,filename:nm+'_strength_profile.pdf',
+  image:{type:'jpeg',quality:0.95},
+  html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff'},
+  jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+  pagebreak:{mode:['css','avoid-all']}};
+ html2pdf().set(opt).from(root).save().then(()=>{
+  btn.textContent=orig;btn.disabled=false;root.innerHTML='';flash('PDFを保存しました');
+ }).catch(e=>{btn.textContent=orig;btn.disabled=false;alert('PDF作成に失敗しました。再度お試しください。');});
+}
+
 /* ===== client persistence ===== */
 function lsGet(){try{return JSON.parse(localStorage.getItem('plgen_v3')||'{}')}catch(e){return {}}}
 function lsSet(o){try{localStorage.setItem('plgen_v3',JSON.stringify(o));return true}catch(e){return false}}
@@ -1113,5 +1351,5 @@ function loadSampleBM(){const set=(id,v)=>document.getElementById(id).value=v;
  set('w_deadlift',150);set('r_deadlift',5);set('rpe_deadlift',8);
  syncGoalUI();updE1();generate();}
 
-libLoad();buildLiftInputs();refreshClientList();syncGoalUI();renderLib();
+libLoad();bandsLoad();buildLiftInputs();refreshClientList();syncGoalUI();renderLib();renderBandsBox();
 </script>
