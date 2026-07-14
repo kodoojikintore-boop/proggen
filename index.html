@@ -816,7 +816,7 @@ function renderOutput(){
 }
 
 function showGroup(gi){
- document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('active',j===gi));
+ document.querySelectorAll('#tabs .tab').forEach((t,j)=>t.classList.toggle('active',j===gi));
  document.querySelectorAll('.weekblock').forEach((b,j)=>b.style.display=j===gi?'block':'none');
 }
 function renderAllGroups(){
@@ -853,7 +853,7 @@ function editVal(gi,di,ii,f,v){const it=PROG.groups[gi].days[di].items[ii];
  else if(f==='swap'){it.name=v;
    const ent=LIB.find(e=>e.n===v&&(!it.swap||e.c===it.swap.cat));
    if(ent&&it.k==='acc')it.reps=ent.r;
-   const act=[...document.querySelectorAll('.tab')].findIndex(t=>t.classList.contains('active'));
+   const act=[...document.querySelectorAll('#tabs .tab')].findIndex(t=>t.classList.contains('active'));
    renderAllGroups();showGroup(act<0?0:act);}
  else it.weight=v;}
 
@@ -1081,7 +1081,8 @@ function bandsLoad(){try{const x=localStorage.getItem('plgen_bands');if(x){BANDS
 function renderBandsBox(){const b=document.getElementById('bandsJson');if(b)b.value=JSON.stringify(BANDS,null,1);}
 function bandsSaveFromBox(){try{
  const v=JSON.parse(document.getElementById('bandsJson').value);
- if(!v.m||!v.f||!v.m.squat)throw 0;
+ const chk=c=>c&&Array.isArray(c.bw)&&c.bw.length===2&&['squat','bench','deadlift'].every(l=>Array.isArray(c[l])&&c[l].length===3&&c[l].every(t=>Array.isArray(t)&&t.length===3&&t.every(n=>typeof n==='number')));
+ if(!chk(v.m)||!chk(v.f))throw 0;
  BANDS=v;try{localStorage.setItem('plgen_bands',JSON.stringify(BANDS));}catch(e){}
  flash('基準を保存しました');
 }catch(e){alert('JSONの形式が正しくありません。修正するか「初期値に戻す」を押してください。');}}
@@ -1093,7 +1094,9 @@ function bwBandIdx(cfg,bw){return bw<cfg.bw[0]?0:(bw<=cfg.bw[1]?1:2);}
 function levelOf(mult,thr){return mult>=thr[2]?3:(mult>=thr[1]?2:(mult>=thr[0]?1:0));}
 
 function buildProfile(I){
- const cfg=(BANDS||DEFAULT_BANDS)[I.sex]||(BANDS||DEFAULT_BANDS).m;
+ let cfg=(BANDS||DEFAULT_BANDS)[I.sex]||(BANDS||DEFAULT_BANDS).m;
+ const okCfg=cfg&&Array.isArray(cfg.bw)&&cfg.bw.length===2&&LIFTS.every(l=>Array.isArray(cfg[l])&&cfg[l].length===3&&cfg[l].every(t=>Array.isArray(t)&&t.length===3));
+ if(!okCfg)cfg=DEFAULT_BANDS[I.sex]||DEFAULT_BANDS.m;
  const bi=bwBandIdx(cfg,I.bw);
  const lifts={};
  LIFTS.forEach(l=>{
@@ -1155,7 +1158,7 @@ function showView(v){
  document.getElementById('vwProg').classList.toggle('active',prog);
  document.getElementById('vwProf').classList.toggle('active',!prog);
  document.getElementById('profileView').style.display=prog?'none':'block';
- ['waveWrap','tabs','weekView','notesBox'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=prog?'':'none';});
+ ['waveWrap','tabs','weekView','notesBox','disc'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=prog?'':'none';});
  const ph=document.querySelector('details.phil');if(ph)ph.style.display=prog?'':'none';
  const lg=document.querySelector('.legend');if(lg)lg.style.display=prog?'':'none';
 }
