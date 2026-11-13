@@ -111,12 +111,13 @@
         <button class="btn ghost small" onclick="saveClient()">保存</button>
         <label class="f">保存済み<select id="clientList"><option value="">—</option></select></label>
         <button class="btn ghost small" onclick="loadClient()">読込</button>
+        <button class="btn ghost small" id="openSavedBtn" style="display:none" onclick="openSavedProgram()">保存済みプログラムを開く</button>
         <button class="btn ghost small" onclick="deleteClient()">削除</button>
         <button class="btn ghost small" onclick="exportClients()">JSON書き出し</button>
         <button class="btn ghost small" onclick="document.getElementById('impFile').click()">JSON読み込み</button>
         <input id="impFile" type="file" accept=".json" style="display:none" onchange="importClients(this)">
       </div>
-      <div class="hint">次サイクルの運用: 読込 → BIG3の実績トップシングルを更新 → 再生成 → 保存。保存はこの端末のブラウザ内＋JSONでバックアップ可。</div>
+      <div class="hint">次サイクルの運用: 読込 → BIG3の実績トップシングルを更新 → 再生成 → 保存。生成したプログラムと手直し内容は、保存済みクライアントなら自動で保存されます。保存はこの端末のブラウザ内＋JSONでバックアップ可。</div>
     </section>
 
     <section class="card"><h2>基本情報</h2>
@@ -160,9 +161,9 @@
         <label class="f">1回の時間
           <select id="time"><option value="60">〜60分</option><option value="75">〜75分</option><option value="90" selected>〜90分</option><option value="120">〜120分</option><option value="180">〜180分</option></select></label>
         <label class="f">器具・環境
-          <select id="equip"><option value="full" selected>フルジム</option><option value="home">ホーム充実</option><option value="min">最小</option></select></label>
+          <select id="equip"><option value="full" selected>フルジム（マシン・ケーブルあり）</option><option value="home">ホームジム（ラック・バーベル・ダンベル・懸垂バー）</option><option value="min">最小（バーベル・ベンチのみ）</option></select></label>
       </div>
-      <div class="hint">8日サイクルは曜日固定なし（Day番号制）。不規則勤務のクライアント向け。</div>
+      <div class="hint">8日サイクルは曜日固定なし（Day番号制）。不規則勤務のクライアント向け。使えない器具の種目は自動で候補から外れます。</div>
     </section>
 
     <section class="card"><h2>強度設計</h2>
@@ -245,6 +246,7 @@
   <div id="out">
     <div class="toolbar">
       <button class="btn ghost" onclick="backToForm()">← 入力に戻る</button>
+      <button class="btn ghost" onclick="progSave(false)">💾 プログラムを保存</button>
       <button class="btn primary" style="flex:1.4" onclick="downloadPDF()" id="pdfBtn">📄 クライアント用PDFを保存</button>
       <button class="btn ghost" onclick="copyLine()">LINE用にコピー</button>
       <button class="btn ghost" onclick="downloadXLSX()" id="xlsxBtn">📊 Excel (記録用) を保存</button>
@@ -312,90 +314,103 @@ const USEJP={backoff:'バックオフ変化',stick:'弱点強化',hyper:'筋肥�
 // n=名前, c=カテゴリ, u=用途, r=既定レップ, a=故障時除外
 const DEFAULT_LIB=[
  // --- squat ---
- {n:'ポーズ(3秒)',c:'squat',u:['backoff'],r:3,a:[]},
- {n:'最大速度',c:'squat',u:['backoff'],r:5,a:[]},
- {n:'ハイバー',c:'squat',u:['backoff'],r:5,a:[]},
- {n:'テンポ(3秒下降)',c:'squat',u:['backoff'],r:5,a:[]},
- {n:'1.5レップ',c:'squat',u:['backoff'],r:5,a:[]},
- {n:'ポーズスクワット(弱点の高さ・2秒)',c:'squat',u:['stick'],r:4,a:[]},
- {n:'グッドモーニング',c:'squat',u:['stick'],r:6,a:['back']},
- {n:'フロントスクワット',c:'squat',u:['stick'],r:5,a:['knee']},
- {n:'SSBスクワット',c:'squat',u:['stick'],r:5,a:[]},
- {n:'ザーチャースクワット',c:'squat',u:['stick'],r:5,a:['elbow']},
+ {n:'ポーズ(3秒)',c:'squat',u:['backoff'],r:3,a:[],q:'bb'},
+ {n:'最大速度',c:'squat',u:['backoff'],r:5,a:[],q:'bb'},
+ {n:'ハイバー',c:'squat',u:['backoff'],r:5,a:[],q:'bb'},
+ {n:'テンポ(3秒下降)',c:'squat',u:['backoff'],r:5,a:[],q:'bb'},
+ {n:'1.5レップ',c:'squat',u:['backoff'],r:5,a:[],q:'bb'},
+ {n:'ポーズスクワット(弱点の高さ・2秒)',c:'squat',u:['stick'],r:4,a:[],q:'bb'},
+ {n:'グッドモーニング',c:'squat',u:['stick'],r:6,a:['back'],q:'bb'},
+ {n:'フロントスクワット',c:'squat',u:['stick'],r:5,a:['knee'],q:'bb'},
+ {n:'SSBスクワット',c:'squat',u:['stick'],r:5,a:[],q:'gym'},
+ {n:'ザーチャースクワット',c:'squat',u:['stick'],r:5,a:['elbow'],q:'bb'},
  // --- bench ---
- {n:'ポーズ(2秒)',c:'bench',u:['backoff'],r:3,a:[]},
- {n:'最大速度',c:'bench',u:['backoff'],r:5,a:[]},
- {n:'Larsenプレス',c:'bench',u:['backoff'],r:5,a:[]},
- {n:'ナローグリップ',c:'bench',u:['backoff'],r:5,a:['elbow']},
- {n:'フットアップ',c:'bench',u:['backoff'],r:5,a:[]},
- {n:'スポトプレス(胸上で静止)',c:'bench',u:['stick'],r:4,a:[]},
- {n:'ナローグリップベンチ',c:'bench',u:['stick'],r:5,a:['elbow']},
- {n:'インクラインバーベルプレス',c:'bench',u:['stick'],r:6,a:['shoulder']},
- {n:'フロアプレス',c:'bench',u:['stick'],r:5,a:[]},
+ {n:'ポーズ(2秒)',c:'bench',u:['backoff'],r:3,a:[],q:'bb'},
+ {n:'最大速度',c:'bench',u:['backoff'],r:5,a:[],q:'bb'},
+ {n:'Larsenプレス',c:'bench',u:['backoff'],r:5,a:[],q:'bb'},
+ {n:'ナローグリップ',c:'bench',u:['backoff'],r:5,a:['elbow'],q:'bb'},
+ {n:'フットアップ',c:'bench',u:['backoff'],r:5,a:[],q:'bb'},
+ {n:'スポトプレス(胸上で静止)',c:'bench',u:['stick'],r:4,a:[],q:'bb'},
+ {n:'ナローグリップベンチ',c:'bench',u:['stick'],r:5,a:['elbow'],q:'bb'},
+ {n:'インクラインバーベルプレス',c:'bench',u:['stick'],r:6,a:['shoulder'],q:'bb'},
+ {n:'フロアプレス',c:'bench',u:['stick'],r:5,a:[],q:'bb'},
  // --- deadlift ---
- {n:'ポーズ(膝下)',c:'deadlift',u:['backoff'],r:3,a:[]},
- {n:'最大速度',c:'deadlift',u:['backoff'],r:5,a:[]},
- {n:'デフィシット',c:'deadlift',u:['backoff'],r:3,a:['back']},
- {n:'ブロックプル',c:'deadlift',u:['backoff'],r:5,a:[]},
- {n:'スティフレッグ',c:'deadlift',u:['backoff'],r:5,a:['back']},
- {n:'ポーズデッド(床離れ直後)',c:'deadlift',u:['stick'],r:3,a:[]},
- {n:'ポーズデッド(膝下)',c:'deadlift',u:['stick'],r:3,a:[]},
- {n:'ブロックプル(低め・膝下)',c:'deadlift',u:['stick'],r:4,a:[]},
- {n:'デフィシットデッド',c:'deadlift',u:['stick'],r:4,a:['back']},
- {n:'スナッチグリップデッド',c:'deadlift',u:['stick'],r:4,a:['back']},
+ {n:'ポーズ(膝下)',c:'deadlift',u:['backoff'],r:3,a:[],q:'bb'},
+ {n:'最大速度',c:'deadlift',u:['backoff'],r:5,a:[],q:'bb'},
+ {n:'デフィシット',c:'deadlift',u:['backoff'],r:3,a:['back'],q:'bb'},
+ {n:'ブロックプル',c:'deadlift',u:['backoff'],r:5,a:[],q:'bb'},
+ {n:'スティフレッグ',c:'deadlift',u:['backoff'],r:5,a:['back'],q:'bb'},
+ {n:'ポーズデッド(床離れ直後)',c:'deadlift',u:['stick'],r:3,a:[],q:'bb'},
+ {n:'ポーズデッド(膝下)',c:'deadlift',u:['stick'],r:3,a:[],q:'bb'},
+ {n:'ブロックプル(低め・膝下)',c:'deadlift',u:['stick'],r:4,a:[],q:'bb'},
+ {n:'デフィシットデッド',c:'deadlift',u:['stick'],r:4,a:['back'],q:'bb'},
+ {n:'スナッチグリップデッド',c:'deadlift',u:['stick'],r:4,a:['back'],q:'bb'},
  // --- 筋肥大: 胸 ---
- {n:'インクラインダンベルプレス',c:'chest',u:['hyper'],r:8,a:[]},
- {n:'マシンチェストプレス',c:'chest',u:['hyper'],r:8,a:[]},
- {n:'ディップス(チェスト)',c:'chest',u:['hyper'],r:8,a:['shoulder','elbow']},
- {n:'ペックフライ',c:'chest',u:['hyper'],r:10,a:[]},
- {n:'ケーブルクロスオーバー',c:'chest',u:['hyper'],r:10,a:[]},
+ {n:'インクラインダンベルプレス',c:'chest',u:['hyper'],r:8,a:[],q:'db'},
+ {n:'マシンチェストプレス',c:'chest',u:['hyper'],r:8,a:[],q:'gym'},
+ {n:'ディップス(チェスト)',c:'chest',u:['hyper'],r:8,a:['shoulder','elbow'],q:'bw'},
+ {n:'ペックフライ',c:'chest',u:['hyper'],r:10,a:[],q:'gym'},
+ {n:'ケーブルクロスオーバー',c:'chest',u:['hyper'],r:10,a:[],q:'gym'},
+ {n:'プッシュアップ(加重可)',c:'chest',u:['hyper'],r:10,a:[],q:'bw'},
  // --- 背中 ---
- {n:'懸垂/ラットプルダウン',c:'back',u:['hyper'],r:8,a:[]},
- {n:'チェストサポートロウ',c:'back',u:['hyper'],r:8,a:[]},
- {n:'シーテッドロウ',c:'back',u:['hyper'],r:8,a:[]},
- {n:'ベントオーバーロウ',c:'back',u:['hyper'],r:8,a:['back']},
- {n:'ワンハンドロウ',c:'back',u:['hyper'],r:8,a:[]},
- {n:'プルオーバー',c:'back',u:['hyper'],r:10,a:['shoulder']},
+ {n:'懸垂/ラットプルダウン',c:'back',u:['hyper'],r:8,a:[],q:'bw'},
+ {n:'チェストサポートロウ',c:'back',u:['hyper'],r:8,a:[],q:'db'},
+ {n:'シーテッドロウ',c:'back',u:['hyper'],r:8,a:[],q:'gym'},
+ {n:'ベントオーバーロウ',c:'back',u:['hyper'],r:8,a:['back'],q:'bb'},
+ {n:'ワンハンドロウ',c:'back',u:['hyper'],r:8,a:[],q:'db'},
+ {n:'プルオーバー',c:'back',u:['hyper'],r:10,a:['shoulder'],q:'db'},
  // --- 肩 ---
- {n:'ミリタリープレス',c:'shoulders',u:['hyper'],r:8,a:['shoulder']},
- {n:'ダンベルショルダープレス',c:'shoulders',u:['hyper'],r:8,a:['shoulder']},
- {n:'サイドレイズ',c:'shoulders',u:['hyper'],r:10,a:['shoulder']},
- {n:'リアデルト',c:'shoulders',u:['hyper'],r:10,a:[]},
- {n:'ケーブルサイドレイズ',c:'shoulders',u:['hyper'],r:10,a:['shoulder']},
+ {n:'ミリタリープレス',c:'shoulders',u:['hyper'],r:8,a:['shoulder'],q:'bb'},
+ {n:'ダンベルショルダープレス',c:'shoulders',u:['hyper'],r:8,a:['shoulder'],q:'db'},
+ {n:'サイドレイズ',c:'shoulders',u:['hyper'],r:10,a:['shoulder'],q:'db'},
+ {n:'リアデルト',c:'shoulders',u:['hyper'],r:10,a:[],q:'db'},
+ {n:'ケーブルサイドレイズ',c:'shoulders',u:['hyper'],r:10,a:['shoulder'],q:'gym'},
  // --- 三頭 ---
- {n:'三頭プレスダウン',c:'triceps',u:['hyper'],r:10,a:[]},
- {n:'スカルクラッシャー',c:'triceps',u:['hyper'],r:10,a:['elbow']},
- {n:'オーバーヘッドエクステンション',c:'triceps',u:['hyper'],r:10,a:['elbow']},
+ {n:'三頭プレスダウン',c:'triceps',u:['hyper'],r:10,a:[],q:'gym'},
+ {n:'スカルクラッシャー',c:'triceps',u:['hyper'],r:10,a:['elbow'],q:'bb'},
+ {n:'オーバーヘッドエクステンション',c:'triceps',u:['hyper'],r:10,a:['elbow'],q:'db'},
  // --- 二頭 ---
- {n:'バーベルカール',c:'biceps',u:['hyper'],r:8,a:[]},
- {n:'インクラインカール',c:'biceps',u:['hyper'],r:10,a:[]},
- {n:'プリーチャーカール',c:'biceps',u:['hyper'],r:10,a:[]},
- {n:'ハンマーカール',c:'biceps',u:['hyper'],r:10,a:[]},
+ {n:'バーベルカール',c:'biceps',u:['hyper'],r:8,a:[],q:'bb'},
+ {n:'インクラインカール',c:'biceps',u:['hyper'],r:10,a:[],q:'db'},
+ {n:'プリーチャーカール',c:'biceps',u:['hyper'],r:10,a:[],q:'gym'},
+ {n:'ハンマーカール',c:'biceps',u:['hyper'],r:10,a:[],q:'db'},
  // --- 脚・後面 ---
- {n:'レッグプレス',c:'quads',u:['hyper'],r:8,a:[]},
- {n:'ハックスクワット',c:'quads',u:['hyper'],r:8,a:['knee']},
- {n:'ブルガリアンスクワット',c:'quads',u:['hyper'],r:8,a:['knee']},
- {n:'ベルトスクワット',c:'quads',u:['hyper'],r:8,a:[]},
- {n:'レッグエクステンション',c:'quads',u:['hyper'],r:10,a:['knee']},
- {n:'ルーマニアンデッドリフト',c:'hams',u:['hyper'],r:8,a:['back']},
- {n:'レッグカール',c:'hams',u:['hyper'],r:10,a:[]},
- {n:'グルートハムレイズ',c:'hams',u:['hyper'],r:10,a:[]},
- {n:'ヒップスラスト',c:'glutes',u:['hyper'],r:8,a:[]},
- {n:'バックエクステンション',c:'glutes',u:['hyper'],r:10,a:['back']},
- {n:'アブダクション',c:'glutes',u:['hyper'],r:10,a:[]},
- {n:'カーフレイズ',c:'calves',u:['hyper'],r:10,a:[]},
+ {n:'レッグプレス',c:'quads',u:['hyper'],r:8,a:[],q:'gym'},
+ {n:'ハックスクワット',c:'quads',u:['hyper'],r:8,a:['knee'],q:'gym'},
+ {n:'ブルガリアンスクワット',c:'quads',u:['hyper'],r:8,a:['knee'],q:'db'},
+ {n:'ベルトスクワット',c:'quads',u:['hyper'],r:8,a:[],q:'gym'},
+ {n:'レッグエクステンション',c:'quads',u:['hyper'],r:10,a:['knee'],q:'gym'},
+ {n:'バーベルランジ',c:'quads',u:['hyper'],r:8,a:['knee'],q:'bb'},
+ {n:'ルーマニアンデッドリフト',c:'hams',u:['hyper'],r:8,a:['back'],q:'bb'},
+ {n:'レッグカール',c:'hams',u:['hyper'],r:10,a:[],q:'gym'},
+ {n:'グルートハムレイズ',c:'hams',u:['hyper'],r:10,a:[],q:'gym'},
+ {n:'ノルディックハムカール',c:'hams',u:['hyper'],r:6,a:['knee'],q:'bw'},
+ {n:'ヒップスラスト',c:'glutes',u:['hyper'],r:8,a:[],q:'bb'},
+ {n:'バックエクステンション',c:'glutes',u:['hyper'],r:10,a:['back'],q:'gym'},
+ {n:'アブダクション',c:'glutes',u:['hyper'],r:10,a:[],q:'gym'},
+ {n:'カーフレイズ',c:'calves',u:['hyper'],r:10,a:[],q:'bw'},
  // --- 体幹 ---
- {n:'アブローラー',c:'core',u:['hyper'],r:10,a:['back']},
- {n:'ケーブルクランチ',c:'core',u:['hyper'],r:10,a:[]},
- {n:'ハンギングレッグレイズ',c:'core',u:['hyper'],r:10,a:[]},
+ {n:'アブローラー',c:'core',u:['hyper'],r:10,a:['back'],q:'bw'},
+ {n:'ケーブルクランチ',c:'core',u:['hyper'],r:10,a:[],q:'gym'},
+ {n:'ハンギングレッグレイズ',c:'core',u:['hyper'],r:10,a:[],q:'bw'},
 ];
+const EQJP={bb:'バーベル',db:'ダンベル',gym:'マシン・ケーブル・専用器具',bw:'自重・懸垂バー'};
+const EQUIP_LEVELS={full:['bb','db','gym','bw'],home:['bb','db','bw'],min:['bb','bw']};
+let EQ_AVAIL=new Set(EQUIP_LEVELS.full);
+function setEquip(lv){EQ_AVAIL=new Set(EQUIP_LEVELS[lv]||EQUIP_LEVELS.full);}
 let LIB=[];
-const LIB_VER=2;
+const LIB_VER=3;
 function libMigrate(){try{
  const v=parseInt(localStorage.getItem('plgen_libver')||'1');
- if(v<2){['ミリタリープレス'].forEach(n=>{
+ const addDefaults=names=>names.forEach(n=>{
    if(!LIB.find(e=>e.n===n)){const d=DEFAULT_LIB.find(e=>e.n===n);
-     if(d)LIB.push(JSON.parse(JSON.stringify(d)));}});libSave();}
+     if(d)LIB.push(JSON.parse(JSON.stringify(d)));}});
+ if(v<2){addDefaults(['ミリタリープレス']);}
+ if(v<3){
+   LIB.forEach(e=>{if(e.q===undefined){const d=DEFAULT_LIB.find(x=>x.n===e.n&&x.c===e.c);e.q=d?d.q:'';}});
+   addDefaults(['バーベルランジ','ノルディックハムカール','プッシュアップ(加重可)']);
+ }
+ if(v<LIB_VER)libSave();
  localStorage.setItem('plgen_libver',String(LIB_VER));
 }catch(e){}}
 function libLoad(){try{const s=localStorage.getItem('plgen_lib');if(s){LIB=JSON.parse(s);libMigrate();return;}}catch(e){}
@@ -403,7 +418,7 @@ function libLoad(){try{const s=localStorage.getItem('plgen_lib');if(s){LIB=JSON.
  try{localStorage.setItem('plgen_libver',String(LIB_VER));}catch(e){}}
 function libSave(){try{localStorage.setItem('plgen_lib',JSON.stringify(LIB));}catch(e){}}
 function libResetDefault(){LIB=JSON.parse(JSON.stringify(DEFAULT_LIB));libSave();}
-function libOf(cat,use,injSet){return LIB.filter(e=>e.c===cat&&e.u.includes(use)&&(!injSet||!e.a.some(t=>injSet.has(t))));}
+function libOf(cat,use,injSet){return LIB.filter(e=>e.c===cat&&e.u.includes(use)&&(!e.q||EQ_AVAIL.has(e.q))&&(!injSet||!(e.a||[]).some(t=>injSet.has(t))));}
 function injSetOf(inj){return new Set(inj);}
 function varOpts(lift,injSet){return ['なし'].concat(libOf(lift,'backoff',injSet).map(e=>e.n));}
 function suggestVar(lift,reps,injSet){const o=libOf(lift,'backoff',injSet).map(e=>e.n);
@@ -437,7 +452,7 @@ const SECPCT=[80,82.5,85,90];
 function warmupTxt(top){
  if(typeof top!=='number')return '';
  const steps=[.45,.65,.8,.9].map(p=>round25(top*p)).filter((v,i,a)=>v>=20&&v<top&&a.indexOf(v)===i);
- return steps.length?('アップ目安: '+steps.join(' → ')+' → トップ'):'';
+ return steps.length?('アップ: '+steps.join('→')):'';
 }
 function injuryFor(lift,inj){let sub=null,cap=10,mult=1;
  inj.forEach(k=>{const c=INJURY[k];if(c.affects.includes(lift)){
@@ -451,7 +466,7 @@ function mkTop(I,lift,rpe,inj,opts){opts=opts||{};
  const w=iv.sub?null:targetW(I.e1[lift],reps,rpe);
  return {k:'top',lift,name,label:opts.label||(opts.tech?'テクニック':(novice?'トップセット':'トップシングル')),
    reps,sets:1,rpe,pctTxt:'',weight:w===null?'':w,editW:true,subbed:!!iv.sub,
-   variation:opts.tech?(function(){const o=varOpts(lift,opts.injSet);return {opts:o,val:suggestVar(lift,3,opts.injSet)};})():null,
+   variation:opts.tech?(function(){const _is=injSetOf(inj);const o=varOpts(lift,_is);return {opts:o,val:suggestVar(lift,3,_is)};})():null,
    warmup:w?warmupTxt(w):'',sep:true};}
 function mkTopPct(I,lift,pct,inj){
  const novice=I.exp==='novice';const reps=novice?3:1;
@@ -471,6 +486,7 @@ function mkBackoff(I,lift,kind,inj,setsOv){
    variation:{opts:varOpts(lift,_is),val:suggestVar(lift,cfg.reps,_is)},
    hint:'良いフォーム最優先。重く感じすぎる＝休息不足のサイン'};}
 function mkVar(I,lift,ceiling,inj){
+ if(injuryFor(lift,inj||[]).sub)return null;
  const sp=I['sp_'+lift];
  if(!sp||sp==='none'||!STICK[lift][sp])return null;
  const _is=injSetOf(inj||[]);
@@ -496,7 +512,8 @@ function pushAcc(items,I,si,accCount,inj){
     weight:'RPE基準',editW:false,variation:null,sep:added===0,
     swap:{opts:hyperOf(m[0],_is).map(e=>e.n),cat:m[0]}});added++;}}
 
-function buildProgram(I){return I.goal==='bm'?buildProgramBM(I):buildProgramPL(I);}
+function buildProgram(I){setEquip(I.equip);const P=I.goal==='bm'?buildProgramBM(I):buildProgramPL(I);
+ P.equip=I.equip;P.client=(document.getElementById('clientName').value||'').trim();P.createdAt=new Date().toISOString();P.edited=false;return P;}
 
 function buildProgramPL(I){
  const ceiling=I.topCeiling;
@@ -728,7 +745,11 @@ function gather(){const mode=document.getElementById('inputMode').value;const e1
 let PROG=null;let PROFILE=null;
 function generate(){const {err,I}=gather();const eb=document.getElementById('errbox');
  if(err){eb.innerHTML='<div class="err">'+err+'</div>';return;}eb.innerHTML='';
+ const cname=document.getElementById('clientName').value.trim();
+ const prev=cname?lsGet()[cname]:null;
+ if(prev&&prev._prog&&prev._prog.edited&&!confirm(cname+' さんには手直し済みのプログラムが保存されています。\n新しく生成すると、保存済みプログラムは上書きされます。続けますか？\n（キャンセルして「保存済みプログラムを開く」で元のプログラムを確認できます）'))return;
  PROG=buildProgram(I);PROFILE=buildProfile(I);renderOutput();renderProfile();showView('prog');
+ if(prev)progSave(true);
  document.getElementById('form').style.display='none';document.getElementById('out').style.display='block';window.scrollTo(0,0);}
 function backToForm(){document.getElementById('out').style.display='none';document.getElementById('form').style.display='block';window.scrollTo(0,0);}
 function esc2(x){return String(x).replace(/</g,'&lt;');}
@@ -848,6 +869,7 @@ function renderAllGroups(){
  }).join('');
 }
 function editVal(gi,di,ii,f,v){const it=PROG.groups[gi].days[di].items[ii];
+ PROG.edited=true;
  if(f==='sets')it.sets=parseInt(v)||it.sets;
  else if(f==='variation')it.variation.val=v;
  else if(f==='swap'){it.name=v;
@@ -855,7 +877,32 @@ function editVal(gi,di,ii,f,v){const it=PROG.groups[gi].days[di].items[ii];
    if(ent&&it.k==='acc')it.reps=ent.r;
    const act=[...document.querySelectorAll('#tabs .tab')].findIndex(t=>t.classList.contains('active'));
    renderAllGroups();showGroup(act<0?0:act);}
- else it.weight=v;}
+ else it.weight=xlNum(v);
+ progAutoSave();}
+
+function progSave(silent){
+ const name=document.getElementById('clientName').value.trim();
+ if(!name){if(!silent)alert('保存するには、入力画面でクライアント名を入れてください。');return false;}
+ if(!PROG)return false;
+ PROG.client=name;
+ const data=lsGet();
+ const rec=Object.assign({},data[name]||{},data[name]?{}:collectForm());
+ rec._prog=PROG;rec._progAt=new Date().toISOString();data[name]=rec;
+ if(lsSet(data)){refreshClientList();if(!silent)flash('プログラムを保存しました: '+name);return true;}
+ if(!silent)alert('保存容量がいっぱいの可能性があります。JSON書き出しでバックアップし、不要なクライアントを削除してください。');
+ return false;}
+function progAutoSave(){const name=document.getElementById('clientName').value.trim();
+ if(name&&PROG&&lsGet()[name])progSave(true);}
+function updateSavedBtn(name){const b=document.getElementById('openSavedBtn');if(!b)return;
+ const rec=name?lsGet()[name]:null;
+ if(rec&&rec._prog){const d=new Date(rec._progAt||rec._prog.createdAt||Date.now());
+  b.textContent='保存済みプログラムを開く（'+(d.getMonth()+1)+'/'+d.getDate()+(rec._prog.edited?'・手直しあり':'')+'）';b.style.display='';}
+ else b.style.display='none';}
+function openSavedProgram(){const name=document.getElementById('clientName').value.trim();
+ const rec=lsGet()[name];if(!rec||!rec._prog)return;
+ PROG=rec._prog;const {I}=gather();PROFILE=buildProfile(I);
+ renderOutput();renderProfile();showView('prog');
+ document.getElementById('form').style.display='none';document.getElementById('out').style.display='block';window.scrollTo(0,0);}
 
 /* ===== Excel (記録用ワークブック) ===== */
 const XL_RED='C41E2A',XL_GRAY='EFEFEF',XL_DAY='F5E3E4',XL_TOPROW='FBEDEE',XL_ZEBRA='F7F7F7',XL_FILLIN='FFF9E6';
@@ -865,91 +912,142 @@ const XL_BORD={top:{style:'thin',color:{rgb:'CCCCCC'}},bottom:{style:'thin',colo
 function xst(o){ // style builder
  const st={font:Object.assign({},XL_FONT,o.font||{}),
    alignment:Object.assign({vertical:'center',wrapText:true},o.al||{}),
-   border:XL_BORD};
+   border:o.nb?{}:XL_BORD};
  if(o.fill)st.fill={fgColor:{rgb:o.fill}};
  return st;}
 const XL_TH=xst({font:{bold:true,color:{rgb:'FFFFFF'}},fill:XL_RED,al:{horizontal:'center'}});
 const XL_DAYROW=xst({font:{bold:true,sz:12.5,color:{rgb:XL_RED}},fill:XL_DAY});
 function xlc(v,s){const c={v:(v===undefined||v===null)?'':v,s:s};c.t=(typeof c.v==='number')?'n':'s';return c;}
-const XL_HEADERS=['種目','区分','バリエーション','セット','指定レップ','強度','指定重量kg','実施重量','実施レップ','体感RPE','メモ'];
+const XL_HEADERS=['種目','区分','バリエーション','セット','レップ','強度','指定重量kg','備考','実施重量kg','実施レップ','体感RPE','メモ'];
+const XL_WIDTHS=[24,14,14,6,6,10,10,24,10,9,8,22];
+// 文字量から行の高さを見積もる（全角=2、半角=1）
+function xlUnits(t){let u=0;for(const ch of String(t))u+=(ch.charCodeAt(0)>0xff)?2:1;return u;}
+function xlLines(t,wch,sz){const cap=Math.max(1,Math.floor(wch*(11/(sz||11))*0.95));
+ return String(t).split('\n').reduce((a,l)=>a+Math.max(1,Math.ceil(xlUnits(l)/cap)),0);}
+function xlRowH(cells,widths,minH){let h=0;
+ cells.forEach((c,i)=>{if(!c||c.v===''||c.v===undefined||c.v===null)return;
+  const sz=(c.s&&c.s.font&&c.s.font.sz)||11;
+  h=Math.max(h,xlLines(c.v,widths[i]||10,sz)*sz*1.45);});
+ return Math.max(minH||22,Math.ceil(h+7));}
+function xlNum(v){if(typeof v==='number')return v;const t=String(v).trim();return /^\d+(\.\d+)?$/.test(t)?Number(t):t;}
 
 function buildWorkbook(p){
- const name=(document.getElementById('clientName').value||'').trim();
+ const name=(p.client||document.getElementById('clientName').value||'').trim();
  const today=new Date();const dateStr=today.getFullYear()+'/'+(today.getMonth()+1)+'/'+today.getDate();
  const wb=XLSX.utils.book_new();
+ const EQ_TXT={full:'フルジム',home:'ホームジム',min:'最小構成（バーベル・ベンチ）'};
 
  // ---- 概要 ----
- const ov=[];const ovRows=[];
- const push=(cells,hpt)=>{ov.push(cells);ovRows.push({hpt:hpt||20});};
- push([xlc('トレーニングプログラム',xst({font:{bold:true,sz:18,color:{rgb:XL_RED}}}))],30);
- push([],8);
+ const OVW=[22,74];const ov=[];const ovRows=[];const ovMerges=[];
+ const head=(t,sz)=>{ovMerges.push({s:{r:ov.length,c:0},e:{r:ov.length,c:1}});
+   ov.push([xlc(t,xst({nb:true,font:{bold:true,sz:sz||13,color:{rgb:XL_RED}},al:{wrapText:false,vertical:'bottom'}})),xlc('',xst({nb:true}))]);ovRows.push({hpt:Math.round((sz||13)*2)});};
+ const kv=(k,v)=>{const r=[xlc(k,xst({font:{bold:true},fill:XL_GRAY})),xlc(v,xst({}))];ov.push(r);ovRows.push({hpt:xlRowH(r,OVW,22)});};
+ const para=t=>{const c=xlc(t,xst({font:{sz:10.5},al:{vertical:'top'}}));ovMerges.push({s:{r:ov.length,c:0},e:{r:ov.length,c:1}});
+   ov.push([c,xlc('',xst({}))]);ovRows.push({hpt:xlRowH([c],[OVW[0]+OVW[1]],18)});};
+ const gap=()=>{ov.push([]);ovRows.push({hpt:8});};
+ head('トレーニングプログラム',18);gap();
  [['クライアント',name||'-'],
   ['目標',p.goal==='bm'?'ボディメイク（筋肥大）':'パワーリフティング（筋力）'],
   ['作成日',dateStr],
   ['スケジュール',p.days==='cycle8'?'8日サイクル':'週'+p.days+'回'],
+  ['トレーニング環境',EQ_TXT[p.equip]||'フルジム'],
   ['デロード','無し（RPE波動で管理）'],
   ['スクワット e1RM',round25(p.e1.squat)+' kg'],
   ['ベンチプレス e1RM',round25(p.e1.bench)+' kg'],
   ['デッドリフト e1RM',round25(p.e1.deadlift)+' kg']
- ].forEach(m=>push([xlc(m[0],xst({font:{bold:true},fill:XL_GRAY})),xlc(m[1],xst({}))],22));
- push([],8);
- push([xlc('記録の付け方',xst({font:{bold:true,sz:13,color:{rgb:XL_RED}}}))],24);
+ ].forEach(m=>kv(m[0],m[1]));
+ gap();head('記録の付け方');
  ['・黄色の列（実施重量・実施レップ・体感RPE・メモ）に記入して送ってください。',
   '・RPEは「あと何回できるか」の感覚です（10=限界 / 9=あと1回 / 8=あと2回 / 7=あと3回 / 6=まだ余裕）。',
   '・指定RPEに達したらそのセットは終了します。',
-  '・体感RPEが設定より高い日は休息不足のサインです。無理に追い込まず軽めに切り上げてください。',
+  '・薄い赤の行（トップシングル）はその日の調子の確認、バックオフが技術と筋力を伸ばす主作業です。',
+  '・バックオフは良いフォームが最優先です。重く感じすぎる日は休息不足のサインなので、無理に追い込まず軽めに切り上げてください。',
+  '・「備考」列のアップは、トップに向けたウォームアップ重量の目安です。',
   '・痛みや違和感が出た場合は中止し、必要に応じて医療機関を受診してください。',
   '※本資料はトレーニング提案であり、医療助言ではありません。'
- ].forEach(t=>push([xlc(t,xst({font:{sz:10.5}}))],18));
- if(p.notes.length){push([],8);
-  push([xlc('故障に関する調整',xst({font:{bold:true,sz:13,color:{rgb:XL_RED}}}))],24);
-  p.notes.forEach(n=>push([xlc('・'+n,xst({font:{sz:10.5}}))],18));}
+ ].forEach(para);
+ if(p.notes.length){gap();head('故障に関する調整');p.notes.forEach(n=>para('・'+n));}
  const wsOv=XLSX.utils.aoa_to_sheet(ov);
- wsOv['!cols']=[{wch:24},{wch:70}];
- wsOv['!rows']=ovRows;
+ wsOv['!cols']=OVW.map(w=>({wch:w}));wsOv['!rows']=ovRows;wsOv['!merges']=ovMerges;
+ wsOv['!margins']={left:0.5,right:0.5,top:0.6,bottom:0.6,header:0.3,footer:0.3};
  XLSX.utils.book_append_sheet(wb,wsOv,'概要');
 
  // ---- 各ブロック ----
+ const names=[];
  p.groups.forEach(g=>{
   const rows=[];const merges=[];const rmeta=[];
-  rows.push(XL_HEADERS.map(h=>xlc(h,XL_TH)));rmeta.push({hpt:24});
+  const hdr=XL_HEADERS.map(h=>xlc(h,XL_TH));rows.push(hdr);rmeta.push({hpt:xlRowH(hdr,XL_WIDTHS,26)});
   g.days.forEach(d=>{
+   const tot=XL_WIDTHS.reduce((a,b)=>a+b,0);
    merges.push({s:{r:rows.length,c:0},e:{r:rows.length,c:XL_HEADERS.length-1}});
-   rows.push([xlc(d.label,XL_DAYROW)]);rmeta.push({hpt:26});
+   const dc=xlc(d.label,XL_DAYROW);rows.push([dc]);rmeta.push({hpt:xlRowH([dc],[tot],26)});
    let zi=0;
    d.items.forEach(it=>{
+    let nm=it.name;const note=[];
+    if(it.subbed&&String(nm).indexOf(' → ')>=0){const pr=String(nm).split(' → ');nm=pr.slice(1).join(' → ');note.push(pr[0]+'の代替（重量はコーチ確認）');}
+    if(it.warmup)note.push(it.warmup);
+    if(it.k==='acc'&&it.hint)note.push('全セット達成で次回重量アップ');
     const inten=it.rpe!==''?('RPE '+it.rpe):(it.pctTxt||'');
-    const wv=(typeof it.weight==='number')?it.weight:(it.weight===''?'':String(it.weight));
+    const wv=(it.weight===undefined||it.weight===null)?'':xlNum(it.weight);
     const baseFill=it.k==='top'?XL_TOPROW:(zi%2?XL_ZEBRA:null);
     const td=o=>xst(Object.assign({fill:baseFill},o||{}));
     const tdC=o=>xst(Object.assign({fill:baseFill,al:{horizontal:'center'}},o||{}));
-    const fill=xst({fill:XL_FILLIN,al:{horizontal:'center'}});
-    rows.push([
-     xlc(it.name,td({font:{bold:it.k==='top'}})),
+    const fillC=xst({fill:XL_FILLIN,al:{horizontal:'center'}});
+    const r=[
+     xlc(nm,td({font:{bold:it.k==='top'}})),
      xlc(it.label,tdC({font:{sz:9.5,color:{rgb:'666666'}}})),
      xlc(it.variation&&it.variation.val!=='なし'?it.variation.val:'',tdC({font:{sz:10}})),
      xlc(it.sets,tdC()),xlc(it.reps,tdC()),xlc(inten,tdC()),xlc(wv,tdC({font:{bold:true}})),
-     xlc('',fill),xlc('',fill),xlc('',fill),xlc('',xst({fill:XL_FILLIN}))]);
-    rmeta.push({hpt:22});
+     xlc(note.join('\n'),td({font:{sz:9.5,color:{rgb:'555555'}}})),
+     xlc('',fillC),xlc('',fillC),xlc('',fillC),xlc('',xst({fill:XL_FILLIN}))];
+    rows.push(r);rmeta.push({hpt:xlRowH(r,XL_WIDTHS,22)});
     zi++;
    });
   });
   const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:30},{wch:11},{wch:15},{wch:7},{wch:10},{wch:10},{wch:12},{wch:10},{wch:10},{wch:9},{wch:28}];
-  ws['!merges']=merges;
-  ws['!rows']=rmeta;
-  XLSX.utils.book_append_sheet(wb,ws,g.label.replace(/[\\\/\?\*\[\]:]/g,'-').slice(0,31));
+  ws['!cols']=XL_WIDTHS.map(w=>({wch:w}));
+  ws['!merges']=merges;ws['!rows']=rmeta;
+  ws['!margins']={left:0.4,right:0.4,top:0.5,bottom:0.5,header:0.3,footer:0.3};
+  let sn=g.label.replace(/[\\\/\?\*\[\]:]/g,'-').slice(0,31);
+  while(names.includes(sn))sn=(sn+'_').slice(0,31);
+  names.push(sn);
+  XLSX.utils.book_append_sheet(wb,ws,sn);
  });
+ // 印刷時に見出し行を各ページに繰り返す
+ wb.Workbook={Names:names.map((sn,i)=>({Name:'_xlnm.Print_Titles',Sheet:i+1,Ref:"'"+sn+"'!$1:$1"}))};
  return wb;
+}
+
+// 保存直前に印刷設定（A4横・幅1ページ）と見出し固定を書き込む
+function xlsxFinalize(wb){
+ const arr=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+ const c=XLSX.CFB.read(new Uint8Array(arr),{type:'array'});
+ const dec=new TextDecoder('utf-8'),enc=new TextEncoder();
+ c.FullPaths.forEach((pth,i)=>{
+  const m=pth.match(/xl\/worksheets\/sheet(\d+)\.xml$/);if(!m)return;
+  const f=c.FileIndex[i];let x=dec.decode(new Uint8Array(f.content));
+  if(x.indexOf('<sheetPr')<0)x=x.replace(/(<worksheet\b[^>]*>)/,'$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
+  if(m[1]!=='1')x=x.replace('<sheetView workbookViewId="0"/>','<sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView>');
+  const orient=m[1]==='1'?'portrait':'landscape';
+  x=x.replace(/(<pageMargins\b[^>]*\/>)/,'$1<pageSetup paperSize="9" orientation="'+orient+'" fitToWidth="1" fitToHeight="0"/>');
+  f.content=enc.encode(x);f.size=f.content.length;
+ });
+ return XLSX.CFB.write(c,{fileType:'zip',type:'array'});
 }
 
 function downloadXLSX(){
  const btn=document.getElementById('xlsxBtn');const orig=btn.textContent;
+ btn.textContent='生成中…';btn.disabled=true;
  try{
-  btn.textContent='生成中…';btn.disabled=true;
   const wb=buildWorkbook(PROG);
-  const name=(document.getElementById('clientName').value||'program').trim().replace(/[^\w一-龠ぁ-んァ-ヶー]/g,'_');
-  XLSX.writeFile(wb,name+'_program.xlsx');
+  const name=((PROG&&PROG.client)||document.getElementById('clientName').value||'program').trim().replace(/[^\w一-龠ぁ-んァ-ヶー]/g,'_');
+  const fn=name+'_program.xlsx';
+  try{
+   const out=xlsxFinalize(wb);
+   const a=document.createElement('a');
+   a.href=URL.createObjectURL(new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+   a.download=fn;document.body.appendChild(a);a.click();a.remove();
+  }catch(e2){XLSX.writeFile(wb,fn);}
   flash('Excelを保存しました');
  }catch(e){alert('Excel作成に失敗しました。通信環境をご確認のうえ再度お試しください。');}
  btn.textContent=orig;btn.disabled=false;
@@ -1285,17 +1383,19 @@ function refreshClientList(){const sel=document.getElementById('clientList');con
  sel.innerHTML='<option value="">—</option>'+Object.keys(data).map(n=>`<option>${n}</option>`).join('');}
 function saveClient(){const name=document.getElementById('clientName').value.trim();
  if(!name){alert('クライアント名を入力してください');return;}
- const data=lsGet();data[name]=collectForm();
- if(lsSet(data)){refreshClientList();document.getElementById('clientList').value=name;flash('保存しました: '+name);}
+ const data=lsGet();const rec=Object.assign({},data[name]||{},collectForm());
+ if(PROG&&PROG.client===name){rec._prog=PROG;rec._progAt=new Date().toISOString();}
+ data[name]=rec;
+ if(lsSet(data)){refreshClientList();document.getElementById('clientList').value=name;updateSavedBtn(name);flash('保存しました: '+name);}
  else alert('この環境ではブラウザ保存が使えません。JSON書き出しをご利用ください。');}
 function loadClient(){const name=document.getElementById('clientList').value;if(!name)return;
- const data=lsGet();if(data[name]){applyForm(data[name]);document.getElementById('clientName').value=name;flash('読込みました: '+name);}}
+ const data=lsGet();if(data[name]){applyForm(data[name]);document.getElementById('clientName').value=name;updateSavedBtn(name);flash('読込みました: '+name);}}
 function deleteClient(){const name=document.getElementById('clientList').value;if(!name)return;
  if(!confirm(name+' を削除しますか？'))return;
- const data=lsGet();delete data[name];lsSet(data);refreshClientList();flash('削除しました');}
+ const data=lsGet();delete data[name];lsSet(data);refreshClientList();updateSavedBtn('');flash('削除しました');}
 function exportClients(){const data=lsGet();
  const cur=document.getElementById('clientName').value.trim();
- if(cur)data[cur]=collectForm();
+ if(cur)data[cur]=Object.assign({},data[cur]||{},collectForm());
  data.__library=LIB;
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,1)],{type:'application/json'}));
  a.download='clients.json';document.body.appendChild(a);a.click();a.remove();}
@@ -1312,8 +1412,8 @@ function importClients(inp){const f=inp.files[0];if(!f)return;
 const AVOIDJP={back:'腰',shoulder:'肩',knee:'膝',elbow:'肘'};
 function renderLib(){
  const t=document.getElementById('libTable');if(!t)return;
- let h='<table style="border-collapse:collapse;font-size:12px;min-width:640px"><thead><tr>'
-  +['種目名','カテゴリ','用途','レップ','故障除外',''].map(x=>'<th style="text-align:left;padding:4px 6px;color:var(--mut);font-size:10px">'+x+'</th>').join('')+'</tr></thead><tbody>';
+ let h='<table style="border-collapse:collapse;font-size:12px;min-width:760px"><thead><tr>'
+  +['種目名','カテゴリ','用途','レップ','必要な器具','故障除外',''].map(x=>'<th style="text-align:left;padding:4px 6px;color:var(--mut);font-size:10px">'+x+'</th>').join('')+'</tr></thead><tbody>';
  LIB.forEach((e,i)=>{
   h+='<tr>';
   h+=`<td style="padding:3px 4px"><input style="width:180px;font-size:12px;padding:5px 6px" value="${e.n.replace(/"/g,'&quot;')}" onchange="libEdit(${i},'n',this.value)"></td>`;
@@ -1321,6 +1421,7 @@ function renderLib(){
   h+='<td style="padding:3px 4px;white-space:nowrap">'+[['backoff','BO'],['stick','弱点'],['hyper','肥大']].map(u=>
     `<label style="font-size:11px;margin-right:6px;color:var(--ink)"><input type="checkbox" style="width:auto" ${e.u.includes(u[0])?'checked':''} onchange="libUse(${i},'${u[0]}',this.checked)">${u[1]}</label>`).join('')+'</td>';
   h+=`<td style="padding:3px 4px"><input type="number" style="width:52px;font-size:12px;padding:5px 4px" value="${e.r}" onchange="libEdit(${i},'r',parseInt(this.value)||8)"></td>`;
+  h+=`<td style="padding:3px 4px"><select style="width:120px;font-size:12px;padding:5px 4px" onchange="libEdit(${i},'q',this.value)"><option value="" ${!e.q?'selected':''}>指定なし</option>${Object.keys(EQJP).map(k=>`<option value="${k}" ${e.q===k?'selected':''}>${EQJP[k]}</option>`).join('')}</select></td>`;
   h+='<td style="padding:3px 4px;white-space:nowrap">'+Object.keys(AVOIDJP).map(a=>
     `<label style="font-size:11px;margin-right:5px;color:var(--ink)"><input type="checkbox" style="width:auto" ${e.a.includes(a)?'checked':''} onchange="libAvoid(${i},'${a}',this.checked)">${AVOIDJP[a]}</label>`).join('')+'</td>';
   h+=`<td style="padding:3px 4px"><button class="btn ghost small" style="padding:5px 9px" onclick="libDel(${i})">削除</button></td>`;
@@ -1335,7 +1436,7 @@ function libUse(i,u,on){const a=LIB[i].u;const j=a.indexOf(u);
 function libAvoid(i,t,on){const a=LIB[i].a;const j=a.indexOf(t);
  if(on&&j<0)a.push(t);if(!on&&j>=0)a.splice(j,1);libSave();}
 function libDel(i){if(!confirm('「'+LIB[i].n+'」を削除しますか？'))return;LIB.splice(i,1);libSave();renderLib();}
-function libAddRow(){LIB.push({n:'新しい種目',c:'chest',u:['hyper'],r:8,a:[]});libSave();renderLib();
+function libAddRow(){LIB.push({n:'新しい種目',c:'chest',u:['hyper'],r:8,a:[],q:''});libSave();renderLib();
  const t=document.getElementById('libTable');t.scrollTop=t.scrollHeight;}
 
 function loadSample(){const set=(id,v)=>document.getElementById(id).value=v;
