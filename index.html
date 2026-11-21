@@ -1,6 +1,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PL プログラムジェネレーター v3</title>
+<title>プログラムジェネレーター v8.4</title>
 <style>
   :root{
     --bg:#15171b;--panel:#1c1f25;--panel2:#22262d;--line:#2c3139;
@@ -94,14 +94,25 @@
   .pf-list li{margin:3px 0}
   #coachNote{width:100%;min-height:90px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:10px;font-family:var(--sans);font-size:14px;box-sizing:border-box}
   #bandsJson{width:100%;min-height:140px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:8px;font-family:var(--mono);font-size:11px;box-sizing:border-box}
-  @media(max-width:520px){h1{font-size:22px}}
+  details.fold{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px}
+  details.fold>summary{cursor:pointer;font-size:12px;letter-spacing:.16em;color:var(--redink);font-weight:800}
+  details.fold>summary span{letter-spacing:0;color:var(--mut);font-weight:600;margin-left:8px}
+  details.fold[open]>summary{margin-bottom:12px}
+  .warnbar{background:#3a2c12;border:1px solid #6b5220;color:#f0c865;border-radius:8px;padding:9px 12px;font-size:13px;margin-top:10px}
+  .flagbar{background:#2a1d1f;border:1px solid #6a2a30;color:#ffb3ba;border-radius:8px;padding:9px 12px;font-size:13px;margin-top:10px;line-height:1.6}
+  textarea.memo{width:100%;min-height:70px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:9px 10px;font-family:var(--sans);font-size:14px;box-sizing:border-box}
+  .pri{display:inline-block;width:18px;font-weight:800;color:var(--redink)}
+  .pri.opt{color:var(--mut)}
+  tr.r-opt td{opacity:.72}
+  .dtime{float:right;font-weight:600;color:var(--mut);font-size:11px;letter-spacing:0}
+  @media(max-width:520px){h1{font-size:22px}.dtime{float:none;display:block;margin-top:2px}}
 </style>
 
 <div class="wrap">
   <header class="top">
     <div class="kicker">Powerlifting · Top-Single + Backoff</div>
     <h1>プログラムジェネレーター</h1>
-    <div class="sub">v3 — BIG3はスキル（トップ＋バックオフ）、筋肥大は補助8rep。RPE波動でデロード不要。</div>
+    <div class="sub"><b id="appVer" style="color:var(--redink)">v8.4</b> — BIG3はスキル（トップ＋バックオフ）、筋肥大は補助種目。RPE波動でデロード不要。</div>
   </header>
 
   <div id="form">
@@ -117,7 +128,15 @@
         <button class="btn ghost small" onclick="document.getElementById('impFile').click()">JSON読み込み</button>
         <input id="impFile" type="file" accept=".json" style="display:none" onchange="importClients(this)">
       </div>
-      <div class="hint">次サイクルの運用: 読込 → BIG3の実績トップシングルを更新 → 再生成 → 保存。生成したプログラムと手直し内容は、保存済みクライアントなら自動で保存されます。保存はこの端末のブラウザ内＋JSONでバックアップ可。</div>
+      <div style="margin-top:10px">
+        <button class="btn ghost small" onclick="document.getElementById('hearFile').click()">📋 ヒヤリングExcelを読み込む</button>
+        <input id="hearFile" type="file" accept=".xlsx" style="display:none" onchange="importHearing(this)">
+      </div>
+      <div id="hearingNote"></div>
+      <div id="backupWarn" class="warnbar" style="display:none"></div>
+      <label class="f" style="margin-top:12px">コーチメモ（ヒヤリングの自由記述・安全確認など。クライアントには渡りません）
+        <textarea id="coachMemo" class="memo"></textarea></label>
+      <div class="hint">次サイクルの運用: 読込 → BIG3の実績トップシングルを更新 → 再生成 → 保存。生成したプログラムと手直し内容は、保存済みクライアントなら自動で保存されます。保存はこの端末のブラウザ内だけなので、定期的にJSON書き出しでバックアップしてください。</div>
     </section>
 
     <section class="card"><h2>基本情報</h2>
@@ -158,7 +177,7 @@
             <option value="5">週5回</option><option value="6">週6回</option>
             <option value="cycle8">8日サイクル（ベンチ毎回＋スク/デッド交互）</option>
           </select></label>
-        <label class="f">1回の時間
+        <label class="f">1回の時間（上限）
           <select id="time"><option value="60">〜60分</option><option value="75">〜75分</option><option value="90" selected>〜90分</option><option value="120">〜120分</option><option value="180">〜180分</option></select></label>
         <label class="f">器具・環境
           <select id="equip"><option value="full" selected>フルジム（マシン・ケーブルあり）</option><option value="home">ホームジム（ラック・バーベル・ダンベル・懸垂バー）</option><option value="min">最小（バーベル・ベンチのみ）</option></select></label>
@@ -166,8 +185,10 @@
       <div class="hint">8日サイクルは曜日固定なし（Day番号制）。不規則勤務のクライアント向け。使えない器具の種目は自動で候補から外れます。</div>
     </section>
 
-    <section class="card"><h2>強度設計</h2>
+    <details class="fold"><summary>強度設計<span>既定のままで作成できます（タップで開く）</span></summary>
       <div class="grid">
+        <label class="f">ボリューム方針
+          <select id="volPolicy"><option value="min">最小限（疲労を抑える）</option><option value="std" selected>標準（推奨）</option><option value="high">多め（回復に余裕がある人）</option></select></label>
         <label class="f">トップシングルRPE上限
           <select id="topCeiling"><option value="8">8 (保守的)</option><option value="9" selected>9 (進捗確認に挑戦)</option></select></label>
         <label class="f">RPE波の進行単位
@@ -175,7 +196,7 @@
         <label class="f">セカンダリー日のトップ
           <select id="secMode"><option value="technique" selected>RPE6固定＋テクニック（ポーズ等）</option><option value="wave">%波 (80→82.5→85→90%)</option></select></label>
       </div>
-      <div class="hint">バックオフ・補助はRPE6〜8固定。8日サイクル選択時は波・中日とも専用構造になります。</div>
+      <div class="hint">量はボリューム方針と、回復・年齢・性別・経験で決まります。「1回の時間」は上限で、収まらない分は○余力があれば の種目から外します。バックオフ・補助はRPE6〜8固定。</div>
       <details class="adv"><summary>詳細設定: バックオフ% (e1RM比)</summary>
         <div class="grid">
           <label class="f">ベンチ P (3×5)<input id="bo_bench_P" type="number" inputmode="decimal" value="71"></label>
@@ -186,7 +207,7 @@
           <label class="f">デッド S<input id="bo_deadlift_S" type="number" inputmode="decimal" value="64"></label>
         </div>
       </details>
-    </section>
+    </details>
 
     <section class="card"><h2>回復・体重方針</h2>
       <div class="grid">
@@ -208,17 +229,30 @@
 
     <section class="card"><h2>故障・痛み</h2>
       <div class="grid">
-        <label class="f">腰<select id="inj_back"><option value="none">なし</option><option value="mild">軽度</option><option value="mod">中等度</option></select></label>
-        <label class="f">肩<select id="inj_shoulder"><option value="none">なし</option><option value="mild">軽度</option><option value="mod">中等度</option></select></label>
-        <label class="f">膝<select id="inj_knee"><option value="none">なし</option><option value="mild">軽度</option><option value="mod">中等度</option></select></label>
-        <label class="f">肘・手首<select id="inj_elbow"><option value="none">なし</option><option value="mild">軽度</option><option value="mod">中等度</option></select></label>
+        <label class="f">腰<select id="inj_back"><option value="none">なし</option><option value="past">過去に痛めた（今は痛みなし）</option><option value="mild">軽度（違和感）</option><option value="mod">中等度（痛みあり）</option></select></label>
+        <label class="f">肩<select id="inj_shoulder"><option value="none">なし</option><option value="past">過去に痛めた（今は痛みなし）</option><option value="mild">軽度（違和感）</option><option value="mod">中等度（痛みあり）</option></select></label>
+        <label class="f">膝<select id="inj_knee"><option value="none">なし</option><option value="past">過去に痛めた（今は痛みなし）</option><option value="mild">軽度（違和感）</option><option value="mod">中等度（痛みあり）</option></select></label>
+        <label class="f">肘・手首<select id="inj_elbow"><option value="none">なし</option><option value="past">過去に痛めた（今は痛みなし）</option><option value="mild">軽度（違和感）</option><option value="mod">中等度（痛みあり）</option></select></label>
       </div>
-      <div class="hint">代替種目・RPE/量の上限を自動適用。代替行の重量はコーチが手入力できます。</div>
+      <div class="hint">軽度・中等度：代替種目とRPE/量の上限を自動適用（代替行の重量はコーチが手入力）。過去に痛めた：種目は外さず、その部位に負担がかかりやすい種目の優先度を下げます。</div>
     </section>
 
-    <section class="card"><h2>種目ライブラリ</h2>
+    <section class="card"><h2>身体の特徴・好み（種目の自動選択に使用）</h2>
+      <div class="grid">
+        <label class="f">頭上に腕を上げる動き<select id="mob_oh"><option value="unknown" selected>未確認</option><option value="ok">問題なし</option><option value="limited">制限あり</option></select></label>
+        <label class="f">足首の柔軟性<select id="mob_ankle"><option value="unknown" selected>未確認</option><option value="ok">問題なし</option><option value="limited">制限あり</option></select></label>
+        <label class="f">深くしゃがむ動き<select id="mob_hip"><option value="unknown" selected>未確認</option><option value="ok">問題なし</option><option value="limited">制限あり</option></select></label>
+      </div>
+      <div class="grid" style="margin-top:12px">
+        <label class="f">好きな種目・得意な種目（「、」で区切る）<input id="likes" type="text" placeholder="例: 懸垂、ヒップスラスト"></label>
+        <label class="f">使えない・やりたくない種目（「、」で区切る）<input id="avoid" type="text" placeholder="例: ディップス、レッグプレス"></label>
+      </div>
+      <div class="hint">種目名の一部でも一致します（「ロウ」でロウ系すべて）。年齢・経験・既往・柔軟性・好みから、補助種目と弱点強化の種目を自動で選びます。選んだ理由は出力画面の各種目の下に表示され、差し替えもできます。</div>
+    </section>
+
+    <details class="fold"><summary>種目ライブラリ<span>種目の追加・編集、判定基準（タップで開く）</span></summary>
       <details class="adv"><summary>種目の追加・編集・削除（タップで開く）</summary>
-        <div class="hint" style="margin:4px 0 10px">ここで編集した内容が自動生成と差し替え候補に反映されます。用途: BO=バックオフ変化 / 弱点 / 肥大=筋肥大。故障タグの付いた種目は該当する故障のクライアントには出しません。</div>
+        <div class="hint" style="margin:4px 0 10px">ここで編集した内容が自動生成と差し替え候補に反映されます。用途: BO=バックオフ変化 / 弱点 / 肥大=筋肥大。故障タグの付いた種目は該当する故障のクライアントには出しません。難しさ・背骨負荷・必要な柔軟性は、クライアントの経験・年齢・既往・柔軟性に合わせた自動選択に使います。</div>
         <div id="libTable" style="overflow-x:auto"></div>
         <div style="display:flex;gap:8px;margin:10px 0 12px;flex-wrap:wrap">
           <button class="btn ghost small" onclick="libAddRow()">＋ 種目を追加</button>
@@ -233,7 +267,7 @@
           <button class="btn ghost small" onclick="bandsReset()">初期値に戻す</button>
         </div>
       </details>
-    </section>
+    </details>
 
     <div id="errbox"></div>
     <button class="btn primary" onclick="generate()">プログラムを生成</button>
@@ -266,6 +300,7 @@
       <span><i class="chip" style="background:var(--z8)"></i>RPE 8</span>
       <span><i class="chip" style="background:var(--z7)"></i>RPE 7</span>
       <span><i class="chip" style="background:var(--z6)"></i>RPE 6 / バックオフ・補助</span>
+      <span><b style="color:var(--redink)">★</b>必須 <b>○</b>余力があれば（時間がない日・体感が重い日は★だけでOK）</span>
       <span>休憩目安: トップ前3〜5分 / バックオフ2〜3分 / 補助1〜2分</span>
     </div>
     <div class="tabs" id="tabs"></div>
@@ -308,98 +343,104 @@ const SPLITS={
 /* ===== 種目ライブラリ ===== */
 const CATS=[['squat','スクワット系'],['bench','ベンチ系'],['deadlift','デッド系'],
  ['chest','胸'],['back','背中'],['shoulders','肩'],['triceps','三頭'],['biceps','二頭'],
- ['quads','大腿四頭'],['hams','ハム'],['glutes','殿筋'],['calves','カーフ'],['core','体幹']];
+ ['quads','大腿四頭'],['hams','ハム'],['glutes','殿筋'],['calves','カーフ'],['core','体幹'],['cond','コンディショニング']];
 const CATJP=Object.fromEntries(CATS);
-const USEJP={backoff:'バックオフ変化',stick:'弱点強化',hyper:'筋肥大'};
+const USEJP={backoff:'バックオフ変化',stick:'弱点強化',hyper:'筋肥大',cond:'コンディショニング'};
 // n=名前, c=カテゴリ, u=用途, r=既定レップ, a=故障時除外
 const DEFAULT_LIB=[
  // --- squat ---
- {n:'ポーズ(3秒)',c:'squat',u:['backoff'],r:3,a:[],q:'bb'},
- {n:'最大速度',c:'squat',u:['backoff'],r:5,a:[],q:'bb'},
- {n:'ハイバー',c:'squat',u:['backoff'],r:5,a:[],q:'bb'},
- {n:'テンポ(3秒下降)',c:'squat',u:['backoff'],r:5,a:[],q:'bb'},
- {n:'1.5レップ',c:'squat',u:['backoff'],r:5,a:[],q:'bb'},
- {n:'ポーズスクワット(弱点の高さ・2秒)',c:'squat',u:['stick'],r:4,a:[],q:'bb'},
- {n:'グッドモーニング',c:'squat',u:['stick'],r:6,a:['back'],q:'bb'},
- {n:'フロントスクワット',c:'squat',u:['stick'],r:5,a:['knee'],q:'bb'},
- {n:'SSBスクワット',c:'squat',u:['stick'],r:5,a:[],q:'gym'},
- {n:'ザーチャースクワット',c:'squat',u:['stick'],r:5,a:['elbow'],q:'bb'},
+ {n:'ポーズ(3秒)',c:'squat',u:['backoff'],r:3,a:[],q:'bb',d:1,sp:0},
+ {n:'最大速度',c:'squat',u:['backoff'],r:5,a:[],q:'bb',d:1,sp:0},
+ {n:'ハイバー',c:'squat',u:['backoff'],r:5,a:[],q:'bb',d:1,sp:0},
+ {n:'テンポ(3秒下降)',c:'squat',u:['backoff'],r:5,a:[],q:'bb',d:1,sp:0},
+ {n:'1.5レップ',c:'squat',u:['backoff'],r:5,a:[],q:'bb',d:1,sp:0},
+ {n:'ポーズスクワット(弱点の高さ・2秒)',c:'squat',u:['stick'],r:4,a:[],q:'bb',d:2,sp:3},
+ {n:'グッドモーニング',c:'squat',u:['stick'],r:6,a:['back'],q:'bb',d:3,sp:3},
+ {n:'フロントスクワット',c:'squat',u:['stick'],r:5,a:['knee'],q:'bb',d:3,sp:2,mob:['ankle','hip']},
+ {n:'SSBスクワット',c:'squat',u:['stick'],r:5,a:[],q:'gym',d:2,sp:2},
+ {n:'ザーチャースクワット',c:'squat',u:['stick'],r:5,a:['elbow'],q:'bb',d:3,sp:2},
  // --- bench ---
- {n:'ポーズ(2秒)',c:'bench',u:['backoff'],r:3,a:[],q:'bb'},
- {n:'最大速度',c:'bench',u:['backoff'],r:5,a:[],q:'bb'},
- {n:'Larsenプレス',c:'bench',u:['backoff'],r:5,a:[],q:'bb'},
- {n:'ナローグリップ',c:'bench',u:['backoff'],r:5,a:['elbow'],q:'bb'},
- {n:'フットアップ',c:'bench',u:['backoff'],r:5,a:[],q:'bb'},
- {n:'スポトプレス(胸上で静止)',c:'bench',u:['stick'],r:4,a:[],q:'bb'},
- {n:'ナローグリップベンチ',c:'bench',u:['stick'],r:5,a:['elbow'],q:'bb'},
- {n:'インクラインバーベルプレス',c:'bench',u:['stick'],r:6,a:['shoulder'],q:'bb'},
- {n:'フロアプレス',c:'bench',u:['stick'],r:5,a:[],q:'bb'},
+ {n:'ポーズ(2秒)',c:'bench',u:['backoff'],r:3,a:[],q:'bb',d:1,sp:0},
+ {n:'最大速度',c:'bench',u:['backoff'],r:5,a:[],q:'bb',d:1,sp:0},
+ {n:'Larsenプレス',c:'bench',u:['backoff'],r:5,a:[],q:'bb',d:1,sp:0},
+ {n:'ナローグリップ',c:'bench',u:['backoff'],r:5,a:['elbow'],q:'bb',d:1,sp:0},
+ {n:'フットアップ',c:'bench',u:['backoff'],r:5,a:[],q:'bb',d:1,sp:0},
+ {n:'スポトプレス(胸上で静止)',c:'bench',u:['stick'],r:4,a:[],q:'bb',d:2,sp:0},
+ {n:'ナローグリップベンチ',c:'bench',u:['stick'],r:5,a:['elbow'],q:'bb',d:1,sp:0},
+ {n:'インクラインバーベルプレス',c:'bench',u:['stick'],r:6,a:['shoulder'],q:'bb',d:1,sp:0},
+ {n:'フロアプレス',c:'bench',u:['stick'],r:5,a:[],q:'bb',d:1,sp:0},
  // --- deadlift ---
- {n:'ポーズ(膝下)',c:'deadlift',u:['backoff'],r:3,a:[],q:'bb'},
- {n:'最大速度',c:'deadlift',u:['backoff'],r:5,a:[],q:'bb'},
- {n:'デフィシット',c:'deadlift',u:['backoff'],r:3,a:['back'],q:'bb'},
- {n:'ブロックプル',c:'deadlift',u:['backoff'],r:5,a:[],q:'bb'},
- {n:'スティフレッグ',c:'deadlift',u:['backoff'],r:5,a:['back'],q:'bb'},
- {n:'ポーズデッド(床離れ直後)',c:'deadlift',u:['stick'],r:3,a:[],q:'bb'},
- {n:'ポーズデッド(膝下)',c:'deadlift',u:['stick'],r:3,a:[],q:'bb'},
- {n:'ブロックプル(低め・膝下)',c:'deadlift',u:['stick'],r:4,a:[],q:'bb'},
- {n:'デフィシットデッド',c:'deadlift',u:['stick'],r:4,a:['back'],q:'bb'},
- {n:'スナッチグリップデッド',c:'deadlift',u:['stick'],r:4,a:['back'],q:'bb'},
+ {n:'ポーズ(膝下)',c:'deadlift',u:['backoff'],r:3,a:[],q:'bb',d:1,sp:0},
+ {n:'最大速度',c:'deadlift',u:['backoff'],r:5,a:[],q:'bb',d:1,sp:0},
+ {n:'デフィシット',c:'deadlift',u:['backoff'],r:3,a:['back'],q:'bb',d:1,sp:0},
+ {n:'ブロックプル',c:'deadlift',u:['backoff'],r:5,a:[],q:'bb',d:1,sp:0},
+ {n:'スティフレッグ',c:'deadlift',u:['backoff'],r:5,a:['back'],q:'bb',d:1,sp:0},
+ {n:'ポーズデッド(床離れ直後)',c:'deadlift',u:['stick'],r:3,a:[],q:'bb',d:2,sp:3},
+ {n:'ポーズデッド(膝下)',c:'deadlift',u:['stick'],r:3,a:[],q:'bb',d:2,sp:3},
+ {n:'ブロックプル(低め・膝下)',c:'deadlift',u:['stick'],r:4,a:[],q:'bb',d:1,sp:3},
+ {n:'デフィシットデッド',c:'deadlift',u:['stick'],r:4,a:['back'],q:'bb',d:3,sp:3,mob:['hip']},
+ {n:'スナッチグリップデッド',c:'deadlift',u:['stick'],r:4,a:['back'],q:'bb',d:3,sp:3},
  // --- 筋肥大: 胸 ---
- {n:'インクラインダンベルプレス',c:'chest',u:['hyper'],r:8,a:[],q:'db'},
- {n:'マシンチェストプレス',c:'chest',u:['hyper'],r:8,a:[],q:'gym'},
- {n:'ディップス(チェスト)',c:'chest',u:['hyper'],r:8,a:['shoulder','elbow'],q:'bw'},
- {n:'ペックフライ',c:'chest',u:['hyper'],r:10,a:[],q:'gym'},
- {n:'ケーブルクロスオーバー',c:'chest',u:['hyper'],r:10,a:[],q:'gym'},
- {n:'プッシュアップ(加重可)',c:'chest',u:['hyper'],r:10,a:[],q:'bw'},
+ {n:'インクラインダンベルプレス',c:'chest',u:['hyper'],r:8,a:[],q:'db',d:1,sp:0},
+ {n:'マシンチェストプレス',c:'chest',u:['hyper'],r:8,a:[],q:'gym',d:1,sp:0},
+ {n:'ディップス(チェスト)',c:'chest',u:['hyper'],r:8,a:['shoulder','elbow'],q:'bw',d:2,sp:0},
+ {n:'ペックフライ',c:'chest',u:['hyper'],r:10,a:[],q:'gym',d:1,sp:0},
+ {n:'ケーブルクロスオーバー',c:'chest',u:['hyper'],r:10,a:[],q:'gym',d:1,sp:0},
+ {n:'プッシュアップ(加重可)',c:'chest',u:['hyper'],r:10,a:[],q:'bw',d:1,sp:0},
  // --- 背中 ---
- {n:'懸垂/ラットプルダウン',c:'back',u:['hyper'],r:8,a:[],q:'bw'},
- {n:'チェストサポートロウ',c:'back',u:['hyper'],r:8,a:[],q:'db'},
- {n:'シーテッドロウ',c:'back',u:['hyper'],r:8,a:[],q:'gym'},
- {n:'ベントオーバーロウ',c:'back',u:['hyper'],r:8,a:['back'],q:'bb'},
- {n:'ワンハンドロウ',c:'back',u:['hyper'],r:8,a:[],q:'db'},
- {n:'プルオーバー',c:'back',u:['hyper'],r:10,a:['shoulder'],q:'db'},
+ {n:'懸垂/ラットプルダウン',c:'back',u:['hyper'],r:8,a:[],q:'bw',d:1,sp:0},
+ {n:'チェストサポートロウ',c:'back',u:['hyper'],r:8,a:[],q:'db',d:1,sp:0},
+ {n:'シーテッドロウ',c:'back',u:['hyper'],r:8,a:[],q:'gym',d:1,sp:0},
+ {n:'ベントオーバーロウ',c:'back',u:['hyper'],r:8,a:['back'],q:'bb',d:2,sp:3},
+ {n:'ワンハンドロウ',c:'back',u:['hyper'],r:8,a:[],q:'db',d:1,sp:1},
+ {n:'プルオーバー',c:'back',u:['hyper'],r:10,a:['shoulder'],q:'db',d:1,sp:0,mob:['oh']},
  // --- 肩 ---
- {n:'ミリタリープレス',c:'shoulders',u:['hyper'],r:8,a:['shoulder'],q:'bb'},
- {n:'ダンベルショルダープレス',c:'shoulders',u:['hyper'],r:8,a:['shoulder'],q:'db'},
- {n:'サイドレイズ',c:'shoulders',u:['hyper'],r:10,a:['shoulder'],q:'db'},
- {n:'リアデルト',c:'shoulders',u:['hyper'],r:10,a:[],q:'db'},
- {n:'ケーブルサイドレイズ',c:'shoulders',u:['hyper'],r:10,a:['shoulder'],q:'gym'},
+ {n:'ミリタリープレス',c:'shoulders',u:['hyper'],r:8,a:['shoulder'],q:'bb',d:2,sp:2,mob:['oh']},
+ {n:'ダンベルショルダープレス',c:'shoulders',u:['hyper'],r:8,a:['shoulder'],q:'db',d:1,sp:1,mob:['oh']},
+ {n:'サイドレイズ',c:'shoulders',u:['hyper'],r:10,a:['shoulder'],q:'db',d:1,sp:0},
+ {n:'リアデルト',c:'shoulders',u:['hyper'],r:10,a:[],q:'db',d:1,sp:0},
+ {n:'ケーブルサイドレイズ',c:'shoulders',u:['hyper'],r:10,a:['shoulder'],q:'gym',d:1,sp:0},
  // --- 三頭 ---
- {n:'三頭プレスダウン',c:'triceps',u:['hyper'],r:10,a:[],q:'gym'},
- {n:'スカルクラッシャー',c:'triceps',u:['hyper'],r:10,a:['elbow'],q:'bb'},
- {n:'オーバーヘッドエクステンション',c:'triceps',u:['hyper'],r:10,a:['elbow'],q:'db'},
+ {n:'三頭プレスダウン',c:'triceps',u:['hyper'],r:10,a:[],q:'gym',d:1,sp:0},
+ {n:'スカルクラッシャー',c:'triceps',u:['hyper'],r:10,a:['elbow'],q:'bb',d:2,sp:0},
+ {n:'オーバーヘッドエクステンション',c:'triceps',u:['hyper'],r:10,a:['elbow'],q:'db',d:1,sp:0,mob:['oh']},
  // --- 二頭 ---
- {n:'バーベルカール',c:'biceps',u:['hyper'],r:8,a:[],q:'bb'},
- {n:'インクラインカール',c:'biceps',u:['hyper'],r:10,a:[],q:'db'},
- {n:'プリーチャーカール',c:'biceps',u:['hyper'],r:10,a:[],q:'gym'},
- {n:'ハンマーカール',c:'biceps',u:['hyper'],r:10,a:[],q:'db'},
+ {n:'バーベルカール',c:'biceps',u:['hyper'],r:8,a:[],q:'bb',d:1,sp:0},
+ {n:'インクラインカール',c:'biceps',u:['hyper'],r:10,a:[],q:'db',d:1,sp:0},
+ {n:'プリーチャーカール',c:'biceps',u:['hyper'],r:10,a:[],q:'gym',d:1,sp:0},
+ {n:'ハンマーカール',c:'biceps',u:['hyper'],r:10,a:[],q:'db',d:1,sp:0},
  // --- 脚・後面 ---
- {n:'レッグプレス',c:'quads',u:['hyper'],r:8,a:[],q:'gym'},
- {n:'ハックスクワット',c:'quads',u:['hyper'],r:8,a:['knee'],q:'gym'},
- {n:'ブルガリアンスクワット',c:'quads',u:['hyper'],r:8,a:['knee'],q:'db'},
- {n:'ベルトスクワット',c:'quads',u:['hyper'],r:8,a:[],q:'gym'},
- {n:'レッグエクステンション',c:'quads',u:['hyper'],r:10,a:['knee'],q:'gym'},
- {n:'バーベルランジ',c:'quads',u:['hyper'],r:8,a:['knee'],q:'bb'},
- {n:'ルーマニアンデッドリフト',c:'hams',u:['hyper'],r:8,a:['back'],q:'bb'},
- {n:'レッグカール',c:'hams',u:['hyper'],r:10,a:[],q:'gym'},
- {n:'グルートハムレイズ',c:'hams',u:['hyper'],r:10,a:[],q:'gym'},
- {n:'ノルディックハムカール',c:'hams',u:['hyper'],r:6,a:['knee'],q:'bw'},
- {n:'ヒップスラスト',c:'glutes',u:['hyper'],r:8,a:[],q:'bb'},
- {n:'バックエクステンション',c:'glutes',u:['hyper'],r:10,a:['back'],q:'gym'},
- {n:'アブダクション',c:'glutes',u:['hyper'],r:10,a:[],q:'gym'},
- {n:'カーフレイズ',c:'calves',u:['hyper'],r:10,a:[],q:'bw'},
+ {n:'レッグプレス',c:'quads',u:['hyper'],r:8,a:[],q:'gym',d:1,sp:0},
+ {n:'ハックスクワット',c:'quads',u:['hyper'],r:8,a:['knee'],q:'gym',d:1,sp:1,mob:['ankle']},
+ {n:'ブルガリアンスクワット',c:'quads',u:['hyper'],r:8,a:['knee'],q:'db',d:2,sp:1,mob:['hip']},
+ {n:'ベルトスクワット',c:'quads',u:['hyper'],r:8,a:[],q:'gym',d:1,sp:0},
+ {n:'レッグエクステンション',c:'quads',u:['hyper'],r:10,a:['knee'],q:'gym',d:1,sp:0},
+ {n:'バーベルランジ',c:'quads',u:['hyper'],r:8,a:['knee'],q:'bb',d:2,sp:2,mob:['hip']},
+ {n:'ルーマニアンデッドリフト',c:'hams',u:['hyper'],r:8,a:['back'],q:'bb',d:2,sp:3},
+ {n:'レッグカール',c:'hams',u:['hyper'],r:10,a:[],q:'gym',d:1,sp:0},
+ {n:'グルートハムレイズ',c:'hams',u:['hyper'],r:10,a:[],q:'gym',d:2,sp:0},
+ {n:'ノルディックハムカール',c:'hams',u:['hyper'],r:6,a:['knee'],q:'bw',d:3,sp:0},
+ {n:'ヒップスラスト',c:'glutes',u:['hyper'],r:8,a:[],q:'bb',d:1,sp:1},
+ {n:'バックエクステンション',c:'glutes',u:['hyper'],r:10,a:['back'],q:'gym',d:1,sp:2},
+ {n:'アブダクション',c:'glutes',u:['hyper'],r:10,a:[],q:'gym',d:1,sp:0},
+ {n:'カーフレイズ',c:'calves',u:['hyper'],r:10,a:[],q:'bw',d:1,sp:0},
  // --- 体幹 ---
- {n:'アブローラー',c:'core',u:['hyper'],r:10,a:['back'],q:'bw'},
- {n:'ケーブルクランチ',c:'core',u:['hyper'],r:10,a:[],q:'gym'},
- {n:'ハンギングレッグレイズ',c:'core',u:['hyper'],r:10,a:[],q:'bw'},
+ {n:'アブローラー',c:'core',u:['hyper'],r:10,a:['back'],q:'bw',d:2,sp:1},
+ {n:'ケーブルクランチ',c:'core',u:['hyper'],r:10,a:[],q:'gym',d:1,sp:0},
+ {n:'ハンギングレッグレイズ',c:'core',u:['hyper'],r:10,a:[],q:'bw',d:2,sp:0},
+ // --- コンディショニング（rは分） ---
+ {n:'エアロバイク(会話できる強度)',c:'cond',u:['cond'],r:15,a:[],q:'gym',d:1,sp:0},
+ {n:'インクライン・ウォーキング',c:'cond',u:['cond'],r:15,a:[],q:'gym',d:1,sp:0},
+ {n:'屋外ウォーキング(速歩き)',c:'cond',u:['cond'],r:20,a:[],q:'bw',d:1,sp:0},
+ {n:'スレッドプッシュ/ドラッグ(軽め)',c:'cond',u:['cond'],r:10,a:[],q:'gym',d:1,sp:0},
+ {n:'ファーマーズウォーク(軽め)',c:'cond',u:['cond'],r:10,a:['back'],q:'db',d:1,sp:2},
 ];
 const EQJP={bb:'バーベル',db:'ダンベル',gym:'マシン・ケーブル・専用器具',bw:'自重・懸垂バー'};
 const EQUIP_LEVELS={full:['bb','db','gym','bw'],home:['bb','db','bw'],min:['bb','bw']};
 let EQ_AVAIL=new Set(EQUIP_LEVELS.full);
 function setEquip(lv){EQ_AVAIL=new Set(EQUIP_LEVELS[lv]||EQUIP_LEVELS.full);}
 let LIB=[];
-const LIB_VER=3;
+const LIB_VER=5;
 function libMigrate(){try{
  const v=parseInt(localStorage.getItem('plgen_libver')||'1');
  const addDefaults=names=>names.forEach(n=>{
@@ -410,6 +451,9 @@ function libMigrate(){try{
    LIB.forEach(e=>{if(e.q===undefined){const d=DEFAULT_LIB.find(x=>x.n===e.n&&x.c===e.c);e.q=d?d.q:'';}});
    addDefaults(['バーベルランジ','ノルディックハムカール','プッシュアップ(加重可)']);
  }
+ if(v<4){addDefaults(['エアロバイク(会話できる強度)','インクライン・ウォーキング','屋外ウォーキング(速歩き)','スレッドプッシュ/ドラッグ(軽め)','ファーマーズウォーク(軽め)']);}
+ if(v<5){LIB.forEach(e=>{if(e.d===undefined){const d=DEFAULT_LIB.find(x=>x.n===e.n&&x.c===e.c);
+   e.d=d?d.d:1;e.sp=d?d.sp:0;e.mob=d&&d.mob?d.mob.slice():[];}});}
  if(v<LIB_VER)libSave();
  localStorage.setItem('plgen_libver',String(LIB_VER));
 }catch(e){}}
@@ -418,7 +462,54 @@ function libLoad(){try{const s=localStorage.getItem('plgen_lib');if(s){LIB=JSON.
  try{localStorage.setItem('plgen_libver',String(LIB_VER));}catch(e){}}
 function libSave(){try{localStorage.setItem('plgen_lib',JSON.stringify(LIB));}catch(e){}}
 function libResetDefault(){LIB=JSON.parse(JSON.stringify(DEFAULT_LIB));libSave();}
-function libOf(cat,use,injSet){return LIB.filter(e=>e.c===cat&&e.u.includes(use)&&(!e.q||EQ_AVAIL.has(e.q))&&(!injSet||!(e.a||[]).some(t=>injSet.has(t))));}
+const APP_VER='8.4';
+const isInj=v=>v==='mild'||v==='mod';
+let CTX=null;   // 生成中だけ有効な、クライアントの特徴
+function tokens(t){return String(t||'').split(/[、,，;；\n\/／]+/).map(x=>x.trim().toLowerCase()).filter(x=>x.length>=2);}
+function setCtx(I){
+ const past=new Set(['back','shoulder','knee','elbow'].filter(k=>I['inj_'+k]==='past'));
+ const why=[];let S=0;
+ if(past.has('back')){S+=1;why.push('腰の既往');}
+ if(isInj(I.inj_back)){S+=1.5;why.push('腰の痛み');}
+ // 年齢だけでは弱く効かせる（種目の向き不向きは既往・柔軟性など個人差の方が大きいため）
+ if(I.age>=60){S+=0.5;why.push('年齢');}else if(I.age>=50){S+=0.25;why.push('年齢');}
+ if(recovery(I.sleep,I.stress).band==='low'){S+=0.5;why.push('回復が低め');}
+ CTX={exp:I.exp,age:I.age,S,Swhy:why.join('・'),past,mob:{oh:I.mob_oh,ankle:I.mob_ankle,hip:I.mob_hip},likes:tokens(I.likes),avoid:tokens(I.avoid)};
+}
+const MOBJP={oh:'頭上に腕を上げる可動域',ankle:'足首の柔軟性',hip:'深くしゃがむ可動域'};
+const INJJP={back:'腰',shoulder:'肩',knee:'膝',elbow:'肘・手首'};
+function scoreEx(e){
+ let s=0;const pens=[];if(!CTX)return {s,pens,k:0};
+ const d=e.d||1,sp=e.sp||0;
+ if(CTX.exp==='novice'&&d>=2){s-=(d===3?3:1);if(d===3)pens.push('難度が高い（経験を考慮）');}
+ else if(CTX.exp==='intermediate'&&d===3)s-=1;
+ if(d===3&&CTX.age>=60){s-=1.5;pens.push('難度が高い（年齢を考慮）');}
+ if(sp&&CTX.S){s-=sp*CTX.S*0.8;if(sp>=2)pens.push('背骨への負荷が高い（'+CTX.Swhy+'を考慮）');}
+ (e.a||[]).forEach(t=>{if(!CTX.past.has(t))return;
+  if(t==='back'&&sp>0)return;   // 腰は背骨負荷の項目で評価済み
+  s-=1.5;pens.push('過去に痛めた'+INJJP[t]+'に負担がかかりやすい');});
+ (e.mob||[]).forEach(t=>{if(CTX.mob[t]==='limited'){s-=3;pens.push(MOBJP[t]+'が必要になる');}});
+ const nm=e.n.toLowerCase();
+ if(CTX.likes.some(t=>nm.includes(t)))s+=3;
+ return {s,pens,k:Math.abs(s)<1?0:s};}   // 小さな差では並びを変えない
+function rankPool(pool){
+ // 「使えない・やりたくない」は必ず外す（その部位の候補が無くなれば、その部位の種目は入れない）
+ const base=pool.filter(e=>!CTX.avoid.some(t=>e.n.toLowerCase().includes(t)));
+ return base.map((e,i)=>({e,i,s:scoreEx(e).k})).sort((x,y)=>y.s-x.s||x.i-y.i).map(x=>x.e);}
+function libRaw(cat,use,injSet){return LIB.filter(e=>e.c===cat&&e.u.includes(use)&&(!e.q||EQ_AVAIL.has(e.q))&&(!injSet||!(e.a||[]).some(t=>injSet.has(t))));}
+function libOf(cat,use,injSet){const pool=libRaw(cat,use,injSet);return (CTX&&use!=='backoff')?rankPool(pool):pool;}
+// 既定の種目ではなくこの種目を選んだ理由（コーチ向け）
+function whyFor(e,cat,use,injSet,defName){
+ if(!CTX||!e)return '';
+ const out=[];
+ if(CTX.likes.some(t=>e.n.toLowerCase().includes(t)))out.push('好きな種目として指定');
+ const raw=libRaw(cat,use,injSet);
+ const def=defName?raw.find(x=>x.n===defName):raw[0];
+ if(def&&def.n!==e.n){
+  if(CTX.avoid.some(t=>def.n.toLowerCase().includes(t)))out.push('「'+def.n+'」は希望により除外');
+  else{const sd=scoreEx(def);if(sd.pens.length&&sd.k<scoreEx(e).k)out.push('「'+def.n+'」は'+sd.pens.join('・')+'ため優先度を下げています');}
+ }
+ return out.join('／');}
 function injSetOf(inj){return new Set(inj);}
 function varOpts(lift,injSet){return ['なし'].concat(libOf(lift,'backoff',injSet).map(e=>e.n));}
 function suggestVar(lift,reps,injSet){const o=libOf(lift,'backoff',injSet).map(e=>e.n);
@@ -492,27 +583,88 @@ function mkVar(I,lift,ceiling,inj){
  const _is=injSetOf(inj||[]);
  const opts=stickOpts(lift,_is);
  if(!opts.length)return null;
- let name=STICK[lift][sp];
+ const defName=STICK[lift][sp];let name=defName;
  if(!opts.includes(name))name=opts[0];
+ else if(CTX){ // 弱点に合った既定種目を基本とし、はっきり合わない場合だけ別の種目にする
+  const de=LIB.find(e=>e.n===name&&e.c===lift),be=LIB.find(e=>e.n===opts[0]&&e.c===lift);
+  if(de&&be&&scoreEx(be).k-scoreEx(de).k>=1.5)name=opts[0];}
  const ent=LIB.find(e=>e.n===name&&e.c===lift);
  return {k:'var',lift,name,label:'弱点強化',reps:I.exp==='novice'?Math.max(5,(ent?ent.r:5)):(ent?ent.r:4),sets:3,
    rpe:Math.min(8,ceiling),pctTxt:'',weight:'RPE基準',editW:false,variation:null,
-   swap:{opts:opts,cat:lift}};}
-function pushAcc(items,I,si,accCount,inj){
- const _is=injSetOf(inj);
- const pools=PL_ACC_PARTS.map(pt=>[pt,hyperOf(pt,_is)]).filter(x=>x[1].length);
- const menu=[];
- const maxLen=Math.max(0,...pools.map(x=>x[1].length));
- for(let r=0;r<maxLen;r++)pools.forEach(([pt,pool])=>{if(r<pool.length)menu.push([pt,pool[r]]);});
- if(!menu.length)return;
- const off=(si*3)%menu.length;const seen=new Set();let added=0;
- for(let j=0;j<menu.length&&added<accCount;j++){const m=menu[(off+j)%menu.length];
-  if(seen.has(m[1].n))continue;seen.add(m[1].n);
-  items.push({k:'acc',lift:'acc',name:m[1].n,label:'補助('+CATJP[m[0]]+')',reps:m[1].r,sets:3,rpe:'8目標',pctTxt:'',
-    weight:'RPE基準',editW:false,variation:null,sep:added===0,
-    swap:{opts:hyperOf(m[0],_is).map(e=>e.n),cat:m[0]}});added++;}}
+   why:whyFor(ent,lift,'stick',_is,defName),swap:{opts:opts,cat:lift}};}
+/* ===== ボリューム設計 ===== */
+const VOL_ACC={min:0.6,std:1.0,high:1.35};
+const VOL_BO={min:0.85,std:1.0,high:1.15};
+const VOL_CAP={min:16,std:20,high:24};   // 1回の作業セットの目安上限
+const PL_ACC_BASE={back:8,post:4,triceps:4,shoulders:4,core:3};   // 標準・週あたりのセット
+const PL_ACC_ORDER=['back','post','triceps','shoulders','core'];
+const PL_ACC_JP={back:'背中',post:'ハム・殿筋',triceps:'三頭',shoulders:'肩',core:'体幹'};
+function accPool(cat,_is){
+ if(cat==='post'){const h=hyperOf('hams',_is),g=hyperOf('glutes',_is);const o=[];
+  for(let i=0;i<Math.max(h.length,g.length);i++){if(h[i])o.push(['hams',h[i]]);if(g[i])o.push(['glutes',g[i]]);}return o;}
+ return hyperOf(cat,_is).map(e=>[cat,e]);}
+function mainSetsOf(items){return items.filter(i=>i.k!=='acc'&&i.k!=='cond').reduce((a,i)=>a+(+i.sets||0),0);}
+// PLの補助：週あたりの目安量を、BIG3の量と相性を見ながら各日に割り振る（全週共通）
+function planPlAcc(I,sess,A,inj,scale){
+ const _is=injSetOf(inj);const pol=VOL_ACC[I.volPolicy]||1;const cap=VOL_CAP[I.volPolicy]||20;
+ const plan=sess.map(()=>[]);const accSets=sess.map(()=>0);const used=sess.map(()=>new Set());
+ const cnt={};const weekly={};
+ PL_ACC_ORDER.forEach(cat=>{
+  const pool=accPool(cat,_is);if(!pool.length)return;
+  const T=Math.round(PL_ACC_BASE[cat]*pol*A*scale);
+  let slots=Math.round(T/3);if(cat==='back'&&T>0)slots=Math.max(1,slots);
+  for(let k=0;k<slots;k++){
+   let best=-1,bs=-1e9;
+   sess.forEach((x,i)=>{
+    if(used[i].has(cat))return;
+    const main=mainSetsOf(x.items);if(cap-main-accSets[i]<3)return;
+    let sc=-accSets[i]*0.6-main*0.15;
+    if((cat==='triceps'||cat==='shoulders')&&x.lifts.has('bench'))sc+=1;
+    if(cat==='post'){if(x.heavy.has('deadlift'))sc-=3;else if(x.heavy.has('squat'))sc-=1.5;else sc+=1;}
+    if(sc>bs){bs=sc;best=i;}});
+   if(best<0)break;
+   const c=cnt[cat]||0;cnt[cat]=c+1;
+   const [sub,ex]=pool[c%pool.length];
+   plan[best].push({cat,sub,ex});accSets[best]+=3;used[best].add(cat);
+   weekly[PL_ACC_JP[cat]]=(weekly[PL_ACC_JP[cat]]||0)+3;
+  }
+ });
+ plan.forEach(x=>x.sort((a,b)=>PL_ACC_ORDER.indexOf(a.cat)-PL_ACC_ORDER.indexOf(b.cat)));
+ return {plan,weekly};
+}
+function accItem(a,_is,first){
+ return {k:'acc',lift:'acc',name:a.ex.n,label:'補助('+CATJP[a.sub]+')',reps:a.ex.r,sets:3,rpe:'8目標',pctTxt:'',
+  weight:'RPE基準',editW:false,variation:null,sep:first,pri:first?'must':'opt',
+  why:whyFor(a.ex,a.sub,'hyper',_is),swap:{opts:hyperOf(a.sub,_is).map(e=>e.n),cat:a.sub}};}
+// コンディショニング：低強度・余力があれば。週2〜3回程度になるよう一部の日だけ
+function condItem(_is,k){const pool=libOf('cond','cond',_is);if(!pool.length)return null;const e=pool[k%pool.length];
+ return {k:'cond',lift:'cond',name:e.n,label:'コンディショニング',reps:e.r+'分',sets:1,rpe:'会話できる強度',pctTxt:'',
+  weight:'—',editW:false,variation:null,sep:true,pri:'opt',swap:{opts:pool.map(x=>x.n),cat:'cond'}};}
+function condDays(n){const o=[];for(let i=0;i<n;i++)if(i%2===1)o.push(i);return o;}
+// 所要時間の目安（分）。ウォームアップ5分＋各種目（休憩込み）
+function itemMin(it){
+ if(it.k==='top')return (it.label==='スキル'||it.label==='テクニック')?10:12;
+ if(it.k==='backoff')return (+it.sets||0)*(it.label==='スキル維持'?2.5:3);
+ if(it.k==='var')return (+it.sets||0)*2.5;
+ if(it.k==='acc')return (+it.sets||0)*((+it.reps||8)>=10?1.5:2);
+ if(it.k==='cond')return parseInt(it.reps)||12;
+ return 2;}
+function dayMin(items,mustOnly){return Math.round(5+items.filter(i=>!mustOnly||i.pri!=='opt').reduce((a,i)=>a+itemMin(i),0));}
+// 時間の上限を超える日は「余力があれば」から外す（コンディショニング→後ろの補助の順）
+function fitTime(days,limit,warn){
+ days.forEach(d=>{
+  while(dayMin(d.items,false)>limit){
+   let idx=-1;
+   for(let i=d.items.length-1;i>=0;i--)if(d.items[i].pri==='opt'&&d.items[i].k==='cond'){idx=i;break;}
+   if(idx<0)for(let i=d.items.length-1;i>=0;i--)if(d.items[i].pri==='opt'){idx=i;break;}
+   if(idx<0)break;d.items.splice(idx,1);}
+  if(dayMin(d.items,true)>limit)warn.add(d.label);});}
+function markMust(items){items.forEach(i=>{if(!i.pri)i.pri='must';});}
+function timeNotes(warn,limit){return warn.size?['【時間】'+[...warn].join('・')+' は★必須だけで'+limit+'分を超える見込みです。時間設定を延ばすか、バックオフのセット数を手直ししてください。']:[];}
 
-function buildProgram(I){setEquip(I.equip);const P=I.goal==='bm'?buildProgramBM(I):buildProgramPL(I);
+function buildProgram(I){setEquip(I.equip);setCtx(I);let P;
+ try{P=I.goal==='bm'?buildProgramBM(I):buildProgramPL(I);}finally{CTX=null;}
+ if(I.mob_hip==='limited')P.notes.push('【可動域】深くしゃがむ動きに制限があります。スクワットは痛みなく安定して行える深さから始め、可動域づくりを並行してください。');
  P.equip=I.equip;P.client=(document.getElementById('clientName').value||'').trim();P.createdAt=new Date().toISOString();P.edited=false;return P;}
 
 function buildProgramPL(I){
@@ -522,14 +674,16 @@ function buildProgramPL(I){
  const recMt={high:1.15,med:1.0,low:0.85}[rec.band];
  const expMt={novice:0.8,intermediate:1.0,advanced:1.1}[I.exp];
  const wgMt={cut:0.85,maintain:1.0,bulk:1.05}[I.wgoal];
- const adj={age:ageM,sex:sexM,rec:recMt,exp:expMt,wgoal:wgMt,total:+(ageM*sexM*recMt*expMt*wgMt).toFixed(2)};
- const inj=[];['back','shoulder','knee','elbow'].forEach(k=>{if(I['inj_'+k]!=='none')inj.push(k);});
- const accCount=Math.max(1,Math.round(({60:2,75:3,90:4,120:5,180:8}[I.time]+(I.wgoal==='bulk'?1:0)+rec.adj)*ageM*sexM));
+ const A=ageM*sexM*recMt*expMt*wgMt;
+ const adj={age:ageM,sex:sexM,rec:recMt,exp:expMt,wgoal:wgMt,total:+A.toFixed(2)};
+ const boPol=VOL_BO[I.volPolicy]||1;
+ const inj=[];['back','shoulder','knee','elbow'].forEach(k=>{if(isInj(I['inj_'+k]))inj.push(k);});
+ const _is=injSetOf(inj);
  const cl=x=>Math.min(x,ceiling);
- const c8sets=Math.min(6,Math.max(3,Math.round(5*({high:1.1,med:1.0,low:0.9}[rec.band])*ageM*sexM)));
- const groups=[];
+ const groups=[];const warn=new Set();let weeklyBO=null,accWeekly={};
  if(I.days==='cycle8'){
-  const days=[];let bseq=0,qseq=0,dseq=0;
+  const c8sets=Math.min(6,Math.max(3,Math.round(5*({high:1.1,med:1.0,low:0.9}[rec.band])*ageM*sexM*boPol)));
+  const days=[];let bseq=0,qseq=0,dseq=0;const sess=[];
   for(let d=1;d<=8;d++){
    const items=[];const odd=d%2===1;
    if(odd){
@@ -542,6 +696,7 @@ function buildProgramPL(I){
      if(!high){const v=mkVar(I,'squat',ceiling,inj);if(v)items.push(v);}
      if(brpe>=8){const v=mkVar(I,'bench',ceiling,inj);if(v)items.push(v);}
      bseq++;qseq++;
+     sess.push({items,lifts:new Set(['bench','squat']),heavy:new Set(['squat'])});
    }else{
      items.push(mkTop(I,'bench',6,inj,{tech:true}));
      items.push(mkBackoff(I,'bench','S',inj,c8sets));
@@ -550,30 +705,32 @@ function buildProgramPL(I){
      items.push(mkBackoff(I,'deadlift',high?'P':'S',inj,c8sets));
      if(!high){const v=mkVar(I,'deadlift',ceiling,inj);if(v)items.push(v);}
      dseq++;
+     sess.push({items,lifts:new Set(['bench','deadlift']),heavy:new Set(['deadlift'])});
    }
-   pushAcc(items,I,d-1,accCount,inj);
+   markMust(items);
    days.push({label:'Day '+d,items});
   }
+  const pl=planPlAcc(I,sess,A,inj,8/7);accWeekly=pl.weekly;
+  const cd=condDays(8);let ck=0;
+  days.forEach((d,i)=>{pl.plan[i].forEach((a,j)=>d.items.push(accItem(a,_is,j===0)));
+   if(cd.includes(i)){const c=condItem(_is,ck++);if(c)d.items.push(c);}});
+  fitTime(days,I.time,warn);
   groups.push({label:'Day 1–4',days:days.slice(0,4)});
   groups.push({label:'Day 5–8',days:days.slice(4)});
  }else{
   const sessions=SPLITS[parseInt(I.days)];
   const pseq={squat:0,bench:0,deadlift:0},sseq={squat:0,bench:0,deadlift:0};
-  // 週あたりバックオフ量を頻度・回復・経験・体重方針でスケール
   const liftSess={squat:0,bench:0,deadlift:0};
-  sessions.forEach(s=>s.slots.forEach(([l])=>liftSess[l]++));
+  sessions.forEach(x=>x.slots.forEach(([l])=>liftSess[l]++));
   const WK_TARGET={bench:16,squat:13,deadlift:10};
-  const recM={high:1.15,med:1.0,low:0.85}[rec.band];
-  const expM={novice:0.8,intermediate:1.0,advanced:1.1}[I.exp];
-  const wgM={cut:0.85,maintain:1.0,bulk:1.05}[I.wgoal];
   const boSets={};
-  LIFTS.forEach(l=>{boSets[l]=liftSess[l]?Math.min(6,Math.max(2,Math.round(WK_TARGET[l]*recM*expM*wgM*ageM*sexM/liftSess[l]))):0;});
-  var weeklyBO={};LIFTS.forEach(l=>weeklyBO[l]=boSets[l]*liftSess[l]);
+  LIFTS.forEach(l=>{boSets[l]=liftSess[l]?Math.min(6,Math.max(2,Math.round(WK_TARGET[l]*A*boPol/liftSess[l]))):0;});
+  weeklyBO={};LIFTS.forEach(l=>weeklyBO[l]=boSets[l]*liftSess[l]);
+  const weeks=[];
   for(let wk=0;wk<4;wk++){
-   const days=[];
-   sessions.forEach((s,si)=>{
+   weeks.push(sessions.map(x=>{
     const items=[];
-    s.slots.forEach(([lift,role])=>{
+    x.slots.forEach(([lift,role])=>{
      if(role==='P'){
        const idx=I.waveMode==='session'?pseq[lift]++:wk;
        const raw=lift==='bench'?PWAVE[idx%4]:SDWAVE[idx%4];
@@ -586,14 +743,24 @@ function buildProgramPL(I){
        items.push(mkBackoff(I,lift,'S',inj,boSets[lift]));
      }
     });
-    pushAcc(items,I,si,Math.max(1,accCount-Math.max(0,s.slots.length-2)),inj);
-    days.push({label:s.label,items});
-   });
-   groups.push({label:'Week '+(wk+1),days});
+    markMust(items);
+    return {label:x.label,items};
+   }));
   }
+  const sess=sessions.map((x,si)=>({items:weeks[0][si].items,
+   lifts:new Set(x.slots.map(z=>z[0])),heavy:new Set(x.slots.filter(z=>z[1]==='P'&&z[0]!=='bench').map(z=>z[0]))}));
+  const pl=planPlAcc(I,sess,A,inj,1);accWeekly=pl.weekly;
+  const cd=condDays(sessions.length);
+  weeks.forEach((days,wk)=>{let ck=0;
+   days.forEach((d,si)=>{pl.plan[si].forEach((a,j)=>d.items.push(accItem(a,_is,j===0)));
+    if(cd.includes(si)){const c=condItem(_is,ck++);if(c)d.items.push(c);}});
+   fitTime(days,I.time,warn);
+   groups.push({label:'Week '+(wk+1),days});});
  }
  const notes=[];inj.forEach(k=>notes.push('【'+({back:'腰',shoulder:'肩',knee:'膝',elbow:'肘・手首'}[k])+'】'+INJURY[k].note));
- return {goal:'pl',ceiling,rec,e1:I.e1,days:I.days,groups,notes,accCount,waveMode:I.waveMode,secMode:I.secMode,novice:I.exp==='novice',weeklyBO:(typeof weeklyBO!=='undefined'?weeklyBO:null),adj};
+ notes.push(...timeNotes(warn,I.time));
+ return {goal:'pl',ceiling,rec,e1:I.e1,days:I.days,groups,notes,volPolicy:I.volPolicy,time:I.time,
+  waveMode:I.waveMode,secMode:I.secMode,novice:I.exp==='novice',weeklyBO,accWeekly,adj};
 }
 
 /* ===== Bodymake (hypertrophy) engine ===== */
@@ -612,7 +779,7 @@ const BM_SPLITS={
     {label:'Day 2 (プル)',skill:[],parts:['back','biceps','shoulders','core']},
     {label:'Day 3 (脚)',skill:['squat'],parts:['quads','hams','glutes','calves']},
     {label:'Day 4 (上半身)',skill:['bench'],parts:['chest','back','shoulders','triceps','biceps']},
-    {label:'Day 5 (下半身)',skill:['deadlift'],parts:['hams','glutes','quads','core']}],
+    {label:'Day 5 (下半身)',skill:['deadlift'],parts:['hams','glutes','quads','calves','core']}],
  6:[{label:'Day 1 (プッシュA)',skill:['bench'],parts:['chest','shoulders','triceps']},
     {label:'Day 2 (プルA)',skill:[],parts:['back','biceps','shoulders','core']},
     {label:'Day 3 (脚A)',skill:['squat'],parts:['quads','hams','glutes','calves']},
@@ -632,63 +799,97 @@ function mkSkillBackoff(I,lift,sets,inj){
   hint:'技術維持が目的。追い込まない'};
 }
 
+const BM_TARGET={chest:11,back:11,shoulders:10,triceps:9,biceps:9,quads:11,hams:9,glutes:9,calves:6,core:6};  // 標準・実効の週セット
+const BM_VOLM={min:0.65,std:1.0,high:1.35};
+const BM_OVERLAP={chest:{triceps:.5,shoulders:.5},back:{biceps:.5,shoulders:.25},quads:{glutes:.5},hams:{glutes:.3}};
+// スキル維持セットは限界から遠い低レップの練習なので、筋肥大の刺激としては半分で数える
+const SKILL_CREDIT={squat:{quads:.5,glutes:.25},bench:{chest:.5,triceps:.25,shoulders:.25},deadlift:{hams:.25,glutes:.25,back:.25}};
 function buildProgramBM(I){
  const ceiling=I.topCeiling;
  const rec=recovery(I.sleep,I.stress);
  const ageM=ageMult(I.age),sexM=sexMult(I.sex);
- const adj={age:ageM,sex:sexM,rec:{high:1.15,med:1.0,low:0.85}[rec.band],exp:1,wgoal:1,total:+(ageM*sexM).toFixed(2)};
- const inj=[];['back','shoulder','knee','elbow'].forEach(k=>{if(I['inj_'+k]!=='none')inj.push(k);});
- const exCount=Math.max(2,Math.round(({60:4,75:5,90:6,120:8,180:10}[I.time]
-   +(I.wgoal==='bulk'?1:(I.wgoal==='cut'?-1:0))+rec.adj)*ageM*sexM));
+ const recMt={high:1.15,med:1.0,low:0.85}[rec.band];
+ const expMt={novice:0.8,intermediate:1.0,advanced:1.1}[I.exp];
+ const wgMt={cut:0.9,maintain:1.0,bulk:1.05}[I.wgoal];
+ const A=ageM*sexM*recMt*expMt*wgMt;
+ const adj={age:ageM,sex:sexM,rec:recMt,exp:expMt,wgoal:wgMt,total:+A.toFixed(2)};
+ const pol=I.volPolicy||'std';const cap=VOL_CAP[pol]||20;
+ const inj=[];['back','shoulder','knee','elbow'].forEach(k=>{if(isInj(I['inj_'+k]))inj.push(k);});
+ const _is=injSetOf(inj);
  const cl=x=>Math.min(x,ceiling);
  const tmpl=BM_SPLITS[parseInt(I.days)]||BM_SPLITS[4];
+ // 部位ごとの週の目標（実効セット）
+ const target={},eff={},direct={};
+ Object.keys(BM_TARGET).forEach(m=>{target[m]=BM_TARGET[m]*(BM_VOLM[pol]||1)*A+(m===I.priPart?4:0);eff[m]=0;direct[m]=0;});
+ const skillBO=l=>{const iv=injuryFor(l,inj);return Math.max(1,Math.round((l==='bench'?3:2)*iv.mult));};
+ const sessSets=tmpl.map(t=>t.skill.reduce((a,l)=>a+1+skillBO(l),0));
+ tmpl.forEach(t=>t.skill.forEach(l=>{const n=skillBO(l)+0.5;Object.entries(SKILL_CREDIT[l]).forEach(([m,c])=>eff[m]+=n*c);}));
+ const orderOf=t=>{let parts=t.parts.slice();
+  if(I.priPart&&I.priPart!=='none'&&parts.includes(I.priPart))parts=[I.priPart].concat(parts.filter(x=>x!==I.priPart));return parts;};
+ // 1回のパスで各日・各部位に最大1種目ずつ。目標に届くか上限に当たるまで繰り返す
+ // 大きい部位→中くらい→小さい部位の順に割り当てる（重点部位は最優先）
+ const TIER={chest:1,back:1,quads:1,hams:1,shoulders:2,glutes:2,triceps:2,biceps:2,calves:3,core:3};
+ const tierOf=x=>x===I.priPart?1:TIER[x];
+ const plan=tmpl.map(()=>[]);const perPart=tmpl.map(()=>({}));const occ={};
+ [1,2,3].forEach(tier=>{
+ let progress=true,guard=0;
+ while(progress&&guard++<30){progress=false;
+  tmpl.forEach((t,si)=>{orderOf(t).filter(x=>tierOf(x)===tier).forEach(pt=>{
+   const rem=target[pt]-eff[pt];if(rem<1.5)return;
+   const pp=perPart[si][pt]||0;
+   let sets=rem>=3?3:2;if(pt===I.priPart&&pp===0&&rem>=4)sets=4;
+   if(pp+sets>8||sessSets[si]+sets>cap)return;
+   let pool=hyperOf(pt,_is);if(!pool.length)return;
+   if(pt==='shoulders'&&/プル/.test(t.label)){const rr=x=>/リア|フェイスプル/.test(x.n);pool=pool.filter(rr).concat(pool.filter(x=>!rr(x)));}
+   const o=occ[pt]||0;let ex=null;
+   for(let k=0;k<pool.length;k++){const c=pool[(o+k)%pool.length];if(!plan[si].some(x=>x.ex.n===c.n)){ex=c;break;}}
+   if(!ex)return;
+   occ[pt]=o+1;plan[si].push({pt,ex,sets});sessSets[si]+=sets;perPart[si][pt]=pp+sets;
+   eff[pt]+=sets;direct[pt]+=sets;
+   Object.entries(BM_OVERLAP[pt]||{}).forEach(([m,c])=>eff[m]+=sets*c);
+   progress=true;});});
+ }});
  const seq={squat:0,bench:0,deadlift:0};
- const _is=injSetOf(inj);
- const groups=[];const partWeekly={};
+ const groups=[];const warn=new Set();const cd=condDays(tmpl.length);
  for(let wk=0;wk<4;wk++){
-  const days=[];
-  // reset per-week counters so each week repeats the same skill wave positions per session order
-  tmpl.forEach((t,si)=>{
+  let ck=0;
+  const days=tmpl.map((t,si)=>{
    const items=[];
    t.skill.forEach(lift=>{
     const rpe=cl(BM_WAVE[seq[lift]%4]);seq[lift]++;
     items.push(mkTop(I,lift,rpe,inj,{label:'スキル'}));
     items.push(mkSkillBackoff(I,lift,lift==='bench'?3:2,inj));
    });
-   let parts=t.parts.slice();
-   if(I.priPart&&I.priPart!=='none'&&parts.includes(I.priPart)){
-    parts=[I.priPart].concat(parts.filter(p=>p!==I.priPart));}
-   const picked=[];const idx={};let guard=0;
-   while(picked.length<exCount&&guard<50){
-    let progress=false;
-    for(const pt of parts){
-     if(picked.length>=exCount)break;
-     let pool=hyperOf(pt,_is);
-     if(pt==='shoulders'&&/プル/.test(t.label))pool=pool.slice().reverse();
-     const i=idx[pt]||0;
-     if(i<pool.length){picked.push([pt,pool[i],i]);idx[pt]=i+1;progress=true;}
-    }
-    if(!progress)break;guard++;
-   }
-   picked.forEach(([pt,ex,i],j)=>{
-    const sets=(pt===I.priPart&&i===0)?4:3;
-    items.push({k:'acc',lift:'acc',name:ex.n,label:'筋肥大('+PARTJP[pt]+')',reps:ex.r,sets,
-      rpe:'8目標',pctTxt:'',weight:'',editW:true,variation:null,sep:j===0,
+   markMust(items);
+   const keyParts=orderOf(t).slice(0,2);const gotMust=new Set();
+   plan[si].forEach((x,j)=>{
+    const must=keyParts.includes(x.pt)&&!gotMust.has(x.pt);if(must)gotMust.add(x.pt);
+    items.push({k:'acc',lift:'acc',name:x.ex.n,label:'筋肥大('+PARTJP[x.pt]+')',reps:x.ex.r,sets:x.sets,
+      rpe:'8目標',pctTxt:'',weight:'',editW:true,variation:null,sep:j===0,pri:must?'must':'opt',
       hint:j===0?'規定回数を全セット達成したら次回重量アップ':'',
-      swap:{opts:hyperOf(pt,_is).map(e=>e.n),cat:pt}});
-    if(wk===0)partWeekly[pt]=(partWeekly[pt]||0)+sets;
+      why:whyFor(x.ex,x.pt,'hyper',_is),swap:{opts:hyperOf(x.pt,_is).map(e=>e.n),cat:x.pt}});
    });
-   days.push({label:t.label,items});
+   const head=items.filter(i=>i.k!=='acc'),accs=items.filter(i=>i.k==='acc');
+   const sorted=head.concat(accs.filter(i=>i.pri==='must'),accs.filter(i=>i.pri!=='must'));
+   sorted.forEach((i,j)=>{if(i.k==='acc')i.sep=(j===head.length);});
+   items.length=0;items.push(...sorted);
+   if(cd.includes(si)){const c=condItem(_is,ck++);if(c)items.push(c);}
+   return {label:t.label,items};
   });
+  fitTime(days,I.time,warn);
   groups.push({label:'Week '+(wk+1),days});
  }
  const notes=[];inj.forEach(k=>notes.push('【'+({back:'腰',shoulder:'肩',knee:'膝',elbow:'肘・手首'}[k])+'】'+INJURY[k].note));
- return {goal:'bm',ceiling,rec,e1:I.e1,days:I.days,groups,notes,accCount:exCount,
-   waveMode:'session',secMode:'-',novice:I.exp==='novice',partWeekly,priPart:I.priPart,adj};
+ notes.push(...timeNotes(warn,I.time));
+ const short=['chest','back','quads','hams'].filter(m=>eff[m]<target[m]*0.75);
+ if(short.length)notes.push('【量】週'+tmpl.length+'回・1回'+cap+'セット以内の条件では、'+short.map(m=>PARTJP[m]).join('・')+'が目標より少なめです。1回の量を増やすより、週の回数を増やす方が疲労を抑えて補えます。');
+ const partWeekly={};Object.keys(eff).forEach(m=>partWeekly[m]=Math.round(eff[m]));
+ return {goal:'bm',ceiling,rec,e1:I.e1,days:I.days,groups,notes,volPolicy:pol,time:I.time,
+   waveMode:'session',secMode:'-',novice:I.exp==='novice',partWeekly,partDirect:direct,partTarget:target,priPart:I.priPart,adj};
 }
 
 /* ===================== UI ===================== */
-const FORM_IDS=['clientName','goal','priPart','age','sex','bw','ht','exp','inputMode','days','time','equip','topCeiling','waveMode','secMode',
+const FORM_IDS=['clientName','coachMemo','mob_oh','mob_ankle','mob_hip','likes','avoid','goal','priPart','volPolicy','age','sex','bw','ht','exp','inputMode','days','time','equip','topCeiling','waveMode','secMode',
  'bo_bench_P','bo_bench_S','bo_squat_P','bo_squat_S','bo_deadlift_P','bo_deadlift_S',
  'sleep','stress','wgoal','sp_squat','sp_bench','sp_deadlift','inj_back','inj_shoulder','inj_knee','inj_elbow',
  'w_squat','r_squat','rpe_squat','w_bench','r_bench','rpe_bench','w_deadlift','r_deadlift','rpe_deadlift'];
@@ -738,10 +939,12 @@ function gather(){const mode=document.getElementById('inputMode').value;const e1
  return {err,I:{goal:g('goal'),priPart:g('priPart'),age:parseInt(g('age'))||35,sex:g('sex'),bw:parseFloat(g('bw'))||80,ht:parseFloat(g('ht'))||172,
    exp:g('exp'),days:g('days'),time:parseInt(g('time')),equip:g('equip'),
    sleep:g('sleep'),stress:g('stress'),wgoal:g('wgoal'),topCeiling:parseInt(g('topCeiling')),
-   waveMode:g('waveMode'),secMode:g('secMode'),boPct:bo,
+   waveMode:g('waveMode'),secMode:g('secMode'),boPct:bo,volPolicy:g('volPolicy')||'std',
+   mob_oh:g('mob_oh')||'unknown',mob_ankle:g('mob_ankle')||'unknown',mob_hip:g('mob_hip')||'unknown',likes:g('likes')||'',avoid:g('avoid')||'',
    sp_squat:g('sp_squat'),sp_bench:g('sp_bench'),sp_deadlift:g('sp_deadlift'),
    inj_back:g('inj_back'),inj_shoulder:g('inj_shoulder'),inj_knee:g('inj_knee'),inj_elbow:g('inj_elbow'),e1}};}
 
+const NEW_DEFAULTS={volPolicy:'std',mob_oh:'unknown',mob_ankle:'unknown',mob_hip:'unknown',likes:'',avoid:'',coachMemo:''};
 let PROG=null;let PROFILE=null;
 function generate(){const {err,I}=gather();const eb=document.getElementById('errbox');
  if(err){eb.innerHTML='<div class="err">'+err+'</div>';return;}eb.innerHTML='';
@@ -760,17 +963,17 @@ function renderOutput(){
  const daysLabel=p.days==='cycle8'?'8日サイクル':'週'+p.days+'回';
  const sm=[['目標',p.goal==='bm'?'ボディメイク':'パワーリフティング'],['スケジュール',daysLabel]];
  if(p.goal==='bm'){
-   sm.push(['BIG3','技術維持（毎週）'],['筋肥大',p.accCount+'種目/回'],
-     ['回復',{high:'高',med:'中',low:'低'}[p.rec.band]],['デロード','無し（波動）']);
+   sm.push(['BIG3','技術維持（毎週）'],['回復',{high:'高',med:'中',low:'低'}[p.rec.band]],['デロード','無し（波動）']);
    if(p.priPart&&p.priPart!=='none')sm.push(['重点部位',PARTJP[p.priPart]]);
-   const pw=Object.entries(p.partWeekly||{}).sort((a,b)=>b[1]-a[1]).slice(0,4)
-     .map(([k,v])=>PARTJP[k]+v).join(' / ');
-   if(pw)sm.push(['週セット(主要部位)',pw,true]);
+   const pw=Object.entries(p.partWeekly||{}).map(([k,v])=>PARTJP[k]+v).join(' / ');
+   if(pw)sm.push(['部位別の週セット（複合種目の重複込み）',pw,true]);
  }else{
    sm.push(['RPE上限','トップ'+p.ceiling],
      ['波の単位',p.days==='cycle8'?'セッション(固定)':({session:'セッション',week:'週'}[p.waveMode])],
-     ['回復',{high:'高',med:'中',low:'低'}[p.rec.band]],['補助',p.accCount+'種目/回'],['デロード','無し（波動）']);
+     ['回復',{high:'高',med:'中',low:'低'}[p.rec.band]],['デロード','無し（波動）']);
    if(p.weeklyBO)sm.push(['週バックオフ','S'+p.weeklyBO.squat+' / B'+p.weeklyBO.bench+' / D'+p.weeklyBO.deadlift+' set',true]);
+   const aw=Object.entries(p.accWeekly||{}).map(([k,v])=>k+v).join(' / ');
+   if(aw)sm.push(['補助の週セット'+(p.days==='cycle8'?'（8日あたり）':''),aw,true]);
  }
  if(p.adj){
    sm.push(['年齢補正','×'+p.adj.age]);
@@ -778,6 +981,10 @@ function renderOutput(){
    sm.push(['回復補正','×'+p.adj.rec]);
    sm.push(['ボリューム総合補正','×'+p.adj.total,true]);
  }
+ if(p.volPolicy)sm.splice(2,0,['ボリューム方針',{min:'最小限',std:'標準',high:'多め'}[p.volPolicy]||'標準']);
+ if(p.groups&&p.groups[0]){const ds=p.groups[0].days;
+   const mm=ds.map(d=>dayMin(d.items,true)),aa=ds.map(d=>dayMin(d.items,false));
+   sm.push(['1回の目安時間','★のみ '+Math.min(...mm)+'〜'+Math.max(...mm)+'分 ／ 全部 '+Math.min(...aa)+'〜'+Math.max(...aa)+'分']);}
  LIFTS.forEach(l=>sm.push([JP[l]+' e1RM',round25(p.e1[l])+'kg',true]));
  document.getElementById('summary').innerHTML=sm.map(x=>`<div class="sm"><div class="k">${x[0]}</div><div class="v ${x[2]?'mono':''}">${x[1]}</div></div>`).join('');
 
@@ -792,6 +999,10 @@ function renderOutput(){
    <p>「あと何回できそうか」の感覚指標。<b>RPE10</b>＝限界。<b>9</b>＝あと1回。<b>8</b>＝あと2回。<b>7</b>＝あと3回。指定RPEに届いたらそのセットは止めます。</p>
    <h4>体感が設定より重いとき</h4>
    <p>設定より<b>体感RPEが高い（重く感じる）</b>場合は、睡眠・栄養・疲労の不足サイン。無理に追い込まず軽めに切り上げます。</p>
+   <h4>★必須と○余力があれば</h4>
+   <p>時間がない日や、体感RPEが設定より重い日（休息不足のサイン）は、<b>★必須だけで終えてOK</b>です。○の種目は余力がある日にだけ行います。コンディショニングは会話できる強さで行い、疲れを残さないことを優先します。</p>
+   <h4>休んだ日があったら</h4>
+   <p>内容は飛ばさず、次に行ける日に<b>続きから再開</b>します。2回分を1日にまとめません。1週間以上空いたときは、最初の1回だけ重量を5〜10%軽くして再開します。</p>
    <h4>休憩の目安</h4>
    <p>BIG3は2〜3分。筋肥大種目はコンパウンド2分、アイソレーション1〜1.5分。</p>`:`
    <h4>BIG3は「練習」、筋肥大は「補助」</h4>
@@ -804,6 +1015,10 @@ function renderOutput(){
    <p>「あと何回できそうか」の感覚指標。<b>RPE10</b>＝限界。<b>9</b>＝あと1回。<b>8</b>＝あと2回。<b>7</b>＝あと3回。<b>6</b>＝あと4回、まだ余裕。指定RPEに届いたらそのセットは止めます。</p>
    <h4>体感が設定より重いとき</h4>
    <p>設定より<b>体感RPEが高い（重く感じる）</b>場合は、睡眠・栄養・疲労の不足サイン。無理に追い込まず軽めに切り上げます。楽に感じるならプログラム通りでOK。</p>
+   <h4>★必須と○余力があれば</h4>
+   <p>時間がない日や、体感RPEが設定より重い日（休息不足のサイン）は、<b>★必須だけで終えてOK</b>です。○の種目は余力がある日にだけ行います。コンディショニングは会話できる強さで行い、疲れを残さないことを優先します。</p>
+   <h4>休んだ日があったら</h4>
+   <p>内容は飛ばさず、次に行ける日に<b>続きから再開</b>します。2回分を1日にまとめません。1週間以上空いたときは、最初の1回だけ重量を5〜10%軽くして再開します。</p>
    <h4>休憩の目安</h4>
    <p>トップ前は3〜5分しっかり。バックオフは2〜3分、補助は1〜2分。</p>`;
 
@@ -846,23 +1061,25 @@ function renderAllGroups(){
   const days=g.days.map((d,di)=>{
    const rows=d.items.map((it,ii)=>{
      const z='var(--'+zoneClass(it.rpe)+')';
-     const cls=(it.k==='top'?'r-top ':'')+(it.k==='acc'?'r-acc ':'')+(it.sep?'sep':'');
+     const cls=(it.k==='top'?'r-top ':'')+(it.k==='acc'||it.k==='cond'?'r-acc ':'')+(it.pri==='opt'?'r-opt ':'')+(it.sep?'sep':'');
+     const mark=it.pri?`<span class="pri ${it.pri==='opt'?'opt':''}" title="${it.pri==='opt'?'余力があれば':'必須'}">${it.pri==='opt'?'○':'★'}</span>`:'';
      const subs=[];
      if(it.subbed)subs.push('代替・重量はコーチ入力/体感RPE基準');
      if(it.hint&&!it.subbed)subs.push(it.hint);
      if(it.warmup)subs.push(it.warmup);
+     if(it.why)subs.push('選択理由: '+esc2(it.why));
      const small=subs.length?'<small>'+subs.join('<br>')+'</small>':'';
      const varSel=it.variation?`<br><select class="var" onchange="editVal(${gi},${di},${ii},'variation',this.value)">${it.variation.opts.map(o=>`<option ${o===it.variation.val?'selected':''}>${o}</option>`).join('')}</select>`:'';
      const nameCell=it.swap?`<select class="var" style="max-width:200px;font-size:13px;font-weight:600" onchange="editVal(${gi},${di},${ii},'swap',this.value)">${it.swap.opts.map(o=>`<option ${o===it.name?'selected':''}>${o}</option>`).join('')}</select>`:esc2(it.name);
-     const inten=(it.rpe!==''?('@'+it.rpe):'')+(it.pctTxt?` <span class="pctsm">${it.pctTxt}</span>`:'');
+     const inten=it.k==='cond'?it.rpe:(it.rpe!==''?('@'+it.rpe):'')+(it.pctTxt?` <span class="pctsm">${it.pctTxt}</span>`:'');
      const wcell=it.editW?`<input class="w" type="number" step="2.5" value="${it.weight}" placeholder="手入力" oninput="editVal(${gi},${di},${ii},'weight',this.value)">`:`<span class="prescr">${it.weight}</span>`;
      return `<tr class="${cls}">
-       <td class="ex">${nameCell}<span class="tag">${it.label}</span>${varSel}${small}</td>
-       <td><span class="prescr"><span class="chip" style="background:${z}"></span>${it.reps}レップ ${inten}</span></td>
+       <td class="ex">${mark}${nameCell}<span class="tag">${it.label}</span>${varSel}${small}</td>
+       <td><span class="prescr"><span class="chip" style="background:${z}"></span>${it.k==='cond'?it.reps:it.reps+'レップ'} ${inten}</span></td>
        <td><input class="s" type="number" value="${it.sets}" oninput="editVal(${gi},${di},${ii},'sets',this.value)"> set</td>
        <td>${wcell}<span style="color:var(--mut);font-size:12px"> ${it.editW?'kg':''}</span></td></tr>`;
    }).join('');
-   return `<div class="day"><div class="dh">${d.label}</div>
+   return `<div class="day"><div class="dh">${d.label}<span class="dtime">★のみ 約${dayMin(d.items,true)}分 ／ 全部 約${dayMin(d.items,false)}分</span></div>
      <table class="prog"><thead><tr><th>種目</th><th>強度</th><th>セット</th><th>重量</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }).join('');
   return `<div class="weekblock" style="display:none"><h3 style="font-size:14px;color:var(--redink);letter-spacing:.08em">${g.label}</h3>${days}</div>`;
@@ -874,7 +1091,9 @@ function editVal(gi,di,ii,f,v){const it=PROG.groups[gi].days[di].items[ii];
  else if(f==='variation')it.variation.val=v;
  else if(f==='swap'){it.name=v;
    const ent=LIB.find(e=>e.n===v&&(!it.swap||e.c===it.swap.cat));
+   it.why='';
    if(ent&&it.k==='acc')it.reps=ent.r;
+   if(ent&&it.k==='cond')it.reps=ent.r+'分';
    const act=[...document.querySelectorAll('#tabs .tab')].findIndex(t=>t.classList.contains('active'));
    renderAllGroups();showGroup(act<0?0:act);}
  else it.weight=xlNum(v);
@@ -888,7 +1107,7 @@ function progSave(silent){
  const data=lsGet();
  const rec=Object.assign({},data[name]||{},data[name]?{}:collectForm());
  rec._prog=PROG;rec._progAt=new Date().toISOString();data[name]=rec;
- if(lsSet(data)){refreshClientList();if(!silent)flash('プログラムを保存しました: '+name);return true;}
+ if(lsSet(data)){refreshClientList();updateBackupWarn();if(!silent)flash('プログラムを保存しました: '+name);return true;}
  if(!silent)alert('保存容量がいっぱいの可能性があります。JSON書き出しでバックアップし、不要なクライアントを削除してください。');
  return false;}
 function progAutoSave(){const name=document.getElementById('clientName').value.trim();
@@ -918,8 +1137,8 @@ function xst(o){ // style builder
 const XL_TH=xst({font:{bold:true,color:{rgb:'FFFFFF'}},fill:XL_RED,al:{horizontal:'center'}});
 const XL_DAYROW=xst({font:{bold:true,sz:12.5,color:{rgb:XL_RED}},fill:XL_DAY});
 function xlc(v,s){const c={v:(v===undefined||v===null)?'':v,s:s};c.t=(typeof c.v==='number')?'n':'s';return c;}
-const XL_HEADERS=['種目','区分','バリエーション','セット','レップ','強度','指定重量kg','備考','実施重量kg','実施レップ','体感RPE','メモ'];
-const XL_WIDTHS=[24,14,14,6,6,10,10,24,10,9,8,22];
+const XL_HEADERS=['優先','種目','区分','バリエーション','セット','レップ','強度','指定重量kg','備考','実施重量kg','実施レップ','体感RPE','メモ'];
+const XL_WIDTHS=[5,24,14,14,6,6,10,10,24,10,9,8,22];
 // 文字量から行の高さを見積もる（全角=2、半角=1）
 function xlUnits(t){let u=0;for(const ch of String(t))u+=(ch.charCodeAt(0)>0xff)?2:1;return u;}
 function xlLines(t,wch,sz){const cap=Math.max(1,Math.floor(wch*(11/(sz||11))*0.95));
@@ -951,13 +1170,17 @@ function buildWorkbook(p){
   ['作成日',dateStr],
   ['スケジュール',p.days==='cycle8'?'8日サイクル':'週'+p.days+'回'],
   ['トレーニング環境',EQ_TXT[p.equip]||'フルジム'],
+  ['ボリューム方針',{min:'最小限',std:'標準',high:'多め'}[p.volPolicy]||'標準'],
   ['デロード','無し（RPE波動で管理）'],
   ['スクワット e1RM',round25(p.e1.squat)+' kg'],
   ['ベンチプレス e1RM',round25(p.e1.bench)+' kg'],
   ['デッドリフト e1RM',round25(p.e1.deadlift)+' kg']
  ].forEach(m=>kv(m[0],m[1]));
  gap();head('記録の付け方');
- ['・黄色の列（実施重量・実施レップ・体感RPE・メモ）に記入して送ってください。',
+ ['・「優先」列の★は必須、○は余力があれば行う種目です。時間がない日や、体感が設定より重い日（休息不足のサイン）は★だけで終えてOKです。',
+  '・各日の見出しに、★だけの場合と全部行う場合の目安時間を載せています。',
+  '・休んだ日があっても内容は飛ばさず、次に行ける日に続きから再開します。2回分を1日にまとめません。1週間以上空いたときは、最初の1回だけ重量を5〜10%軽くします。',
+  '・黄色の列（実施重量・実施レップ・体感RPE・メモ）に記入して送ってください。',
   '・RPEは「あと何回できるか」の感覚です（10=限界 / 9=あと1回 / 8=あと2回 / 7=あと3回 / 6=まだ余裕）。',
   '・指定RPEに達したらそのセットは終了します。',
   '・薄い赤の行（トップシングル）はその日の調子の確認、バックオフが技術と筋力を伸ばす主作業です。',
@@ -980,24 +1203,25 @@ function buildWorkbook(p){
   g.days.forEach(d=>{
    const tot=XL_WIDTHS.reduce((a,b)=>a+b,0);
    merges.push({s:{r:rows.length,c:0},e:{r:rows.length,c:XL_HEADERS.length-1}});
-   const dc=xlc(d.label,XL_DAYROW);rows.push([dc]);rmeta.push({hpt:xlRowH([dc],[tot],26)});
+   const dc=xlc(d.label+'　（★必須のみ 約'+dayMin(d.items,true)+'分 ／ 全部 約'+dayMin(d.items,false)+'分）',XL_DAYROW);rows.push([dc]);rmeta.push({hpt:xlRowH([dc],[tot],26)});
    let zi=0;
    d.items.forEach(it=>{
     let nm=it.name;const note=[];
     if(it.subbed&&String(nm).indexOf(' → ')>=0){const pr=String(nm).split(' → ');nm=pr.slice(1).join(' → ');note.push(pr[0]+'の代替（重量はコーチ確認）');}
     if(it.warmup)note.push(it.warmup);
     if(it.k==='acc'&&it.hint)note.push('全セット達成で次回重量アップ');
-    const inten=it.rpe!==''?('RPE '+it.rpe):(it.pctTxt||'');
+    const inten=it.k==='cond'?it.rpe:(it.rpe!==''?('RPE '+it.rpe):(it.pctTxt||''));
     const wv=(it.weight===undefined||it.weight===null)?'':xlNum(it.weight);
     const baseFill=it.k==='top'?XL_TOPROW:(zi%2?XL_ZEBRA:null);
     const td=o=>xst(Object.assign({fill:baseFill},o||{}));
     const tdC=o=>xst(Object.assign({fill:baseFill,al:{horizontal:'center'}},o||{}));
     const fillC=xst({fill:XL_FILLIN,al:{horizontal:'center'}});
     const r=[
-     xlc(nm,td({font:{bold:it.k==='top'}})),
+     xlc(it.pri==='opt'?'○':(it.pri?'★':''),tdC({font:{bold:true,color:{rgb:it.pri==='opt'?'999999':XL_RED}}})),
+     xlc(nm,td({font:{bold:it.k==='top',color:{rgb:it.pri==='opt'?'555555':'000000'}}})),
      xlc(it.label,tdC({font:{sz:9.5,color:{rgb:'666666'}}})),
      xlc(it.variation&&it.variation.val!=='なし'?it.variation.val:'',tdC({font:{sz:10}})),
-     xlc(it.sets,tdC()),xlc(it.reps,tdC()),xlc(inten,tdC()),xlc(wv,tdC({font:{bold:true}})),
+     xlc(it.k==='cond'?'—':it.sets,tdC()),xlc(it.reps,tdC()),xlc(inten,tdC()),xlc(wv,tdC({font:{bold:true}})),
      xlc(note.join('\n'),td({font:{sz:9.5,color:{rgb:'555555'}}})),
      xlc('',fillC),xlc('',fillC),xlc('',fillC),xlc('',xst({fill:XL_FILLIN}))];
     rows.push(r);rmeta.push({hpt:xlRowH(r,XL_WIDTHS,22)});
@@ -1058,13 +1282,15 @@ function copyLine(){const p=PROG;const name=(document.getElementById('clientName
  let t=(name?name+'様\n':'')+'【トレーニングプログラム】\n';
  t+=(p.goal==='bm'?'目標: ボディメイク（筋肥大）':'目標: パワーリフティング')+'\n';
  t+='e1RM  '+LIFTS.map(l=>JP[l]+' '+round25(p.e1[l])+'kg').join(' / ')+'\n';
+ t+='★=必須 ○=余力があれば（時間がない日・体感が重い日は★だけでOK）\n';
  p.groups.forEach(g=>{t+='\n― '+g.label+' ―\n';
-   g.days.forEach(d=>{t+='\n'+d.label+'\n';d.items.forEach(it=>{
+   g.days.forEach(d=>{t+='\n'+d.label+'（★のみ約'+dayMin(d.items,true)+'分／全部約'+dayMin(d.items,false)+'分）\n';d.items.forEach(it=>{
      const vv=it.variation&&it.variation.val!=='なし'?'('+it.variation.val+')':'';
      const wt=(it.weight!=='RPE基準'&&it.weight!==''&&it.weight!=='—')?it.weight+'kg':(it.weight===''?'コーチ記入':it.weight);
-     const inten=it.rpe!==''?('RPE'+it.rpe):(it.pctTxt||'');
-     t+='・'+it.name+vv+'['+it.label+']  '+it.sets+'set×'+it.reps+'rep '+inten+' '+wt+'\n';});});});
- t+='\n※指定RPEで止める。重く感じたら休息不足のサイン。痛みが出たら中止してください。';
+     const inten=it.k==='cond'?it.rpe:(it.rpe!==''?('RPE'+it.rpe):(it.pctTxt||''));
+     const mk=it.pri==='opt'?'○':(it.pri?'★':'・');
+     t+=mk+it.name+vv+'['+it.label+']  '+(it.k==='cond'?it.reps+' ':it.sets+'set×'+it.reps+'rep ')+inten+' '+(it.k==='cond'?'':wt)+'\n';});});});
+ t+='\n※指定RPEで止める。重く感じたら休息不足のサイン。痛みが出たら中止してください。\n※休んだ日があっても内容は飛ばさず、続きから再開（2回分を1日にまとめない）。';
  if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>flash('LINE用にコピーしました'),()=>fb(t));else fb(t);}
 function fb(t){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');flash('コピーしました');}catch(e){alert('コピー不可');}ta.remove();}
 function flash(m){const d=document.createElement('div');d.textContent=m;d.style.cssText='position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--red);color:#fff;padding:10px 18px;border-radius:8px;font-weight:700;z-index:99';document.body.appendChild(d);setTimeout(()=>d.remove(),1600);}
@@ -1072,7 +1298,7 @@ function flash(m){const d=document.createElement('div');d.textContent=m;d.style.
 function reportItemRow(it){
  const z={z9:'#d11f2d',z8:'#2f74c0',z7:'#d4a017',z6:'#7a8088'}[zoneClass(it.rpe)];
  const vv=it.variation&&it.variation.val!=='なし'?'　<span style="color:#666">('+esc(it.variation.val)+')</span>':'';
- const inten=(it.rpe!==''?('RPE '+it.rpe):'')+(it.pctTxt?(' '+it.pctTxt):'');
+ const inten=it.k==='cond'?it.rpe:(it.rpe!==''?('RPE '+it.rpe):'')+(it.pctTxt?(' '+it.pctTxt):'');
  const wtxt=it.weight===''?'<span style="color:#b33">コーチ記入</span>':(it.weight==='RPE基準'?'RPE基準':esc(it.weight)+' kg');
  const sub=[];
  if(it.subbed)sub.push('代替種目・重量はコーチ確認');
@@ -1080,11 +1306,11 @@ function reportItemRow(it){
  if(it.warmup)sub.push(it.warmup);
  const border=it.k==='top'?'border-top:2px solid #ddd;':'';
  return `<tr style="${border}">
-   <td style="padding:7px 8px;font-weight:600;font-size:12.5px;">${esc(it.name)}${vv}
+   <td style="padding:7px 8px;font-weight:600;font-size:12.5px;${it.pri==='opt'?'color:#666;':''}">${it.pri?('<span style="display:inline-block;width:16px;color:'+(it.pri==='opt'?'#999':'#c41e2a')+'">'+(it.pri==='opt'?'○':'★')+'</span>'):''}${esc(it.name)}${vv}
      <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:.03em;">${esc(it.label)}</div>
      ${sub.length?'<div style="font-size:10px;color:#999;margin-top:2px;line-height:1.4">'+sub.map(esc).join('<br>')+'</div>':''}
    </td>
-   <td style="padding:7px 8px;font-size:12.5px;white-space:nowrap;"><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${z};margin-right:5px;"></span>${it.reps}レップ ${esc(inten)}</td>
+   <td style="padding:7px 8px;font-size:12.5px;white-space:nowrap;"><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${z};margin-right:5px;"></span>${it.k==='cond'?esc(it.reps):it.reps+'レップ'} ${esc(inten)}</td>
    <td style="padding:7px 8px;font-size:12.5px;text-align:center;">${it.sets} set</td>
    <td style="padding:7px 8px;font-size:12.5px;text-align:right;white-space:nowrap;">${wtxt}</td>
  </tr>`;
@@ -1103,13 +1329,13 @@ function buildReportHTML(p){
    <div style="font-size:14px;font-weight:700;font-family:ui-monospace,Menlo,monospace;">${esc(s[1])}</div></div>`).join('');
 
  const philText=p.goal==='bm'
-  ?'成長の主役は筋肥大種目です。コンパウンドは8レップ、アイソレーションは10レップを目安に、全セット達成できたら次回重量を上げます。BIG3は技術維持のため軽めに毎週続けます（追い込みません）。RPEは「あと何回できるか」の感覚（10=限界、8=あと2回、6=まだ余裕）。設定より重く感じる日は休息不足のサインなので、無理せず軽めに切り上げてください。'
-  :'BIG3のトップは今日の調子の確認、バックオフが技術と筋力を伸ばす主作業です。筋肉を大きくする役割は補助種目（基本8レップ）が担当します。デロード週は設けず、RPEの波で回復を管理します。RPEは「あと何回できるか」の感覚（10=限界、8=あと2回、6=まだ余裕）。設定より重く感じる日は休息不足のサインなので、無理せず軽めに切り上げてください。';
+  ?'成長の主役は筋肥大種目です。コンパウンドは8レップ、アイソレーションは10レップを目安に、全セット達成できたら次回重量を上げます。BIG3は技術維持のため軽めに毎週続けます（追い込みません）。RPEは「あと何回できるか」の感覚（10=限界、8=あと2回、6=まだ余裕）。設定より重く感じる日は休息不足のサインなので、無理せず軽めに切り上げてください。★は必須、○は余力があれば行う種目です。時間がない日や体感が重い日は★だけで終えてOKです。休んだ日があっても内容は飛ばさず、次に行ける日に続きから再開します（2回分を1日にまとめません）。'
+  :'BIG3のトップは今日の調子の確認、バックオフが技術と筋力を伸ばす主作業です。筋肉を大きくする役割は補助種目（基本8レップ）が担当します。デロード週は設けず、RPEの波で回復を管理します。RPEは「あと何回できるか」の感覚（10=限界、8=あと2回、6=まだ余裕）。設定より重く感じる日は休息不足のサインなので、無理せず軽めに切り上げてください。★は必須、○は余力があれば行う種目です。時間がない日や体感が重い日は★だけで終えてOKです。休んだ日があっても内容は飛ばさず、次に行ける日に続きから再開します（2回分を1日にまとめません）。';
 
  const groupsHtml=p.groups.map((g,gi)=>{
   const daysHtml=g.days.map(d=>`
    <div style="margin-bottom:14px;">
-     <div style="font-size:12.5px;font-weight:800;color:#c41e2a;letter-spacing:.04em;border-bottom:1.5px solid #eee;padding-bottom:4px;margin-bottom:2px;">${esc(d.label)}</div>
+     <div style="font-size:12.5px;font-weight:800;color:#c41e2a;letter-spacing:.04em;border-bottom:1.5px solid #eee;padding-bottom:4px;margin-bottom:2px;">${esc(d.label)}<span style="float:right;font-weight:600;color:#888;font-size:10.5px;letter-spacing:0">★のみ 約${dayMin(d.items,true)}分 ／ 全部 約${dayMin(d.items,false)}分</span></div>
      <table style="width:100%;border-collapse:collapse;">
        <thead><tr style="border-bottom:1px solid #ddd;">
          <th style="text-align:left;font-size:10px;color:#999;padding:4px 8px;">種目</th>
@@ -1377,6 +1603,8 @@ function lsGet(){try{return JSON.parse(localStorage.getItem('plgen_v3')||'{}')}c
 function lsSet(o){try{localStorage.setItem('plgen_v3',JSON.stringify(o));return true}catch(e){return false}}
 function collectForm(){const o={};FORM_IDS.forEach(id=>{const el=document.getElementById(id);if(el)o[id]=el.value;});return o;}
 function applyForm(o){FORM_IDS.forEach(id=>{const el=document.getElementById(id);if(el&&o[id]!==undefined)el.value=o[id];});
+ Object.entries(NEW_DEFAULTS).forEach(([id,v])=>{if(o[id]===undefined){const el=document.getElementById(id);if(el)el.value=v;}});
+ document.getElementById('hearingNote').innerHTML='';
  document.getElementById('inputMode').dispatchEvent(new Event('change'));
  syncGoalUI();updE1();}
 function refreshClientList(){const sel=document.getElementById('clientList');const data=lsGet();
@@ -1386,19 +1614,27 @@ function saveClient(){const name=document.getElementById('clientName').value.tri
  const data=lsGet();const rec=Object.assign({},data[name]||{},collectForm());
  if(PROG&&PROG.client===name){rec._prog=PROG;rec._progAt=new Date().toISOString();}
  data[name]=rec;
- if(lsSet(data)){refreshClientList();document.getElementById('clientList').value=name;updateSavedBtn(name);flash('保存しました: '+name);}
+ if(lsSet(data)){refreshClientList();document.getElementById('clientList').value=name;updateSavedBtn(name);updateBackupWarn();flash('保存しました: '+name);}
  else alert('この環境ではブラウザ保存が使えません。JSON書き出しをご利用ください。');}
 function loadClient(){const name=document.getElementById('clientList').value;if(!name)return;
  const data=lsGet();if(data[name]){applyForm(data[name]);document.getElementById('clientName').value=name;updateSavedBtn(name);flash('読込みました: '+name);}}
 function deleteClient(){const name=document.getElementById('clientList').value;if(!name)return;
  if(!confirm(name+' を削除しますか？'))return;
  const data=lsGet();delete data[name];lsSet(data);refreshClientList();updateSavedBtn('');flash('削除しました');}
+function updateBackupWarn(){const el=document.getElementById('backupWarn');if(!el)return;
+ const n=Object.keys(lsGet()).length;let last=0;try{last=parseInt(localStorage.getItem('plgen_lastBackup')||'0')||0;}catch(e){}
+ const days=last?Math.floor((Date.now()-last)/86400000):null;
+ if(n>0&&(days===null||days>=14)){el.style.display='';
+  el.textContent=days===null?('保存済みクライアントが'+n+'人いますが、まだバックアップがありません。「JSON書き出し」で保存してください（ブラウザのデータを消すと全て失われます）。')
+   :('最後のバックアップから'+days+'日たっています。「JSON書き出し」で保存してください。');}
+ else el.style.display='none';}
 function exportClients(){const data=lsGet();
+ try{localStorage.setItem('plgen_lastBackup',String(Date.now()));}catch(e){}
  const cur=document.getElementById('clientName').value.trim();
  if(cur)data[cur]=Object.assign({},data[cur]||{},collectForm());
  data.__library=LIB;
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,1)],{type:'application/json'}));
- a.download='clients.json';document.body.appendChild(a);a.click();a.remove();}
+ const d=new Date();a.download='clients_'+d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'.json';document.body.appendChild(a);a.click();a.remove();updateBackupWarn();}
 function importClients(inp){const f=inp.files[0];if(!f)return;
  const r=new FileReader();
  r.onload=()=>{try{const incoming=JSON.parse(r.result);const data=lsGet();
@@ -1408,20 +1644,110 @@ function importClients(inp){const f=inp.files[0];if(!f)return;
   }catch(e){alert('JSONの形式が不正です');}};
  r.readAsText(f);inp.value='';}
 
+/* ===== ヒヤリングExcelの読み込み ===== */
+function hNorm(x){return String(x===undefined||x===null?'':x).replace(/\s+/g,'');}
+function parseHearingRows(rows){
+ const f={},memo=[],flags=[],todo=[];let irregular=false;
+ const PAIN={'腰':'inj_back','肩':'inj_shoulder','膝':'inj_knee','肘・手首':'inj_elbow'};
+ const LIFT={'スクワット':'squat','ベンチプレス':'bench','デッドリフト':'deadlift'};
+ const painV=v=>v.includes('過去')?'past':(v.includes('違和感')?'mild':(v.includes('痛みがある')?'mod':'none'));
+ const mobV=v=>v.includes('できない')?'limited':(v.includes('できる')?'ok':'unknown');
+ rows.forEach(r=>{
+  const A=hNorm(r[0]);if(!A)return;
+  const raw=i=>String(r[i]===undefined||r[i]===null?'':r[i]).trim();
+  const B=hNorm(r[1]),C=hNorm(r[2]),D=hNorm(r[3]),E=hNorm(r[4]);
+  const v=B||E,rv=raw(1)||raw(4);
+  const note=(t)=>{if(rv)memo.push('【'+t+'】'+rv);};
+  if(PAIN[A]){if(B)f[PAIN[A]]=painV(B);if(raw(3))memo.push('【'+A+'の詳細】'+raw(3));return;}
+  if(LIFT[A]){const k=LIFT[A];const w=parseFloat(B),reps=parseInt(C);
+   if(w>0){f['w_'+k]=w;f['r_'+k]=reps>0?reps:1;
+    f['rpe_'+k]=D.includes('限界')?9.5:(D.includes('余裕')?7:(D.includes('あと')?8.5:8));f.inputMode='topset';
+    if(reps>10)todo.push(A+'は'+reps+'回の記録です。高回数からの推定1RMは精度が低いので、重量は控えめに確認してください。');
+    if(!D)todo.push(A+'の余力感が未記入です（RPE8として計算）。');
+    if(raw(4))memo.push('【'+A+'の記録時期】'+raw(4));}
+   else todo.push(A+'の記録が未記入です。重量を手入力してください。');
+   return;}
+  if(A.startsWith('バンザイ')){f.mob_oh=mobV(E||B);return;}
+  if(A.startsWith('足首')){f.mob_ankle=mobV(E||B);return;}
+  if(A.startsWith('しゃがみ')){f.mob_hip=mobV(E||B);return;}
+  if((E==='はい'||E==='いいえ')&&A.length>6){if(E==='はい')flags.push(raw(0)+(raw(5)?'（'+raw(5)+'）':''));return;}
+  if(A.startsWith('お名前')){if(rv)f.clientName=rv;}
+  else if(A.startsWith('年齢')){const n=parseInt(v);if(n>0)f.age=n;}
+  else if(A.startsWith('性別')){if(v)f.sex=v.includes('女')?'f':'m';}
+  else if(A.startsWith('身長')){const n=parseFloat(v);if(n>0)f.ht=n;}
+  else if(A.startsWith('体重(kg)')||A.startsWith('体重（kg）')){const n=parseFloat(v);if(n>0)f.bw=n;}
+  else if(A.startsWith('主な目標')){if(v)f.goal=v.includes('筋肉')?'bm':'pl';}
+  else if(A.startsWith('特に大きくしたい部位')){const m={'胸':'chest','背中':'back','肩':'shoulders','腕':'triceps','大腿':'quads','ハム':'hams'};
+   const k=Object.keys(m).find(x=>v.includes(x));f.priPart=k?m[k]:'none';}
+  else if(A.startsWith('大会'))note('大会・目標日');
+  else if(A.startsWith('具体的な目標'))note('具体的な目標');
+  else if(A.startsWith('トレーニング歴')){if(v)f.exp=v.includes('未満')?'novice':(v.includes('4年以上')?'advanced':'intermediate');}
+  else if(A.startsWith('これまでやってきた内容'))note('これまでの内容');
+  else if(A.startsWith('各種目で潰れやすい位置')){if(rv){memo.push('【潰れやすい位置】'+rv);todo.push('潰れやすい位置の記入があります（'+rv+'）。「弱点」欄を設定してください。');}}
+  else if(A.startsWith('週に何回')){const m=v.match(/週(\d)回/);if(m)f.days=m[1];else if(v.includes('不規則'))irregular=true;}
+  else if(A.startsWith('1回に使える時間')){const m=v.match(/(\d+)分/);if(m){const t=+m[1];f.time=[60,75,90,120,180].reduce((a,b)=>Math.abs(b-t)<Math.abs(a-t)?b:a);}}
+  else if(A.startsWith('トレーニング環境')){if(v)f.equip=v.includes('フルジム')?'full':(v.includes('ホームジム')?'home':'min');}
+  else if(A.startsWith('使えない')){if(rv)f.avoid=rv;}
+  else if(A.startsWith('睡眠')){if(v)f.sleep=v.includes('良好')?'good':(v.includes('不足')?'poor':'avg');}
+  else if(A.startsWith('仕事・生活のストレス')){if(v)f.stress=v.includes('低')?'low':(v.includes('高')?'high':'med');}
+  else if(A.startsWith('体重の方針')){if(v)f.wgoal=v.includes('減量')?'cut':(v.includes('増量')?'bulk':'maintain');}
+  else if(A.startsWith('希望の報告頻度'))note('希望の報告頻度');
+  else if(A.startsWith('フォーム動画'))note('フォーム動画');
+  else if(A.startsWith('質問'))note('質問・伝えたいこと');
+  else if(A.startsWith('好きな種目')){if(rv)f.likes=rv;}
+  else if(A.startsWith('経験があり'))note('自信のある種目');
+  else if(A.startsWith('体格'))note('体格・フォームのクセ');
+ });
+ if(irregular){if(f.goal==='bm'){f.days='4';todo.push('勤務が不規則とのことです。ボディメイクは週4回で仮設定しました。実際に通える回数を確認してください。');}
+  else{f.days='cycle8';todo.push('勤務が不規則とのことなので、8日サイクル（曜日固定なし）に設定しました。');}}
+ return {f,memo,flags,todo,ok:Object.keys(f).length>=4};
+}
+function applyHearing(res){
+ const set=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v;};
+ ['sp_squat','sp_bench','sp_deadlift','inj_back','inj_shoulder','inj_knee','inj_elbow'].forEach(id=>set(id,'none'));
+ ['mob_oh','mob_ankle','mob_hip'].forEach(id=>set(id,'unknown'));
+ ['likes','avoid','clientName'].forEach(id=>set(id,''));
+ Object.entries(res.f).forEach(([id,v])=>set(id,String(v)));
+ const lines=[];
+ if(res.flags.length)lines.push('⚠ 安全確認で「はい」: '+res.flags.join(' ／ '));
+ lines.push(...res.memo);
+ set('coachMemo',lines.join('\n'));
+ let h='';
+ if(res.flags.length)h+='<div class="flagbar"><b>安全確認に「はい」があります。プログラムを渡す前に内容を確認し、必要ならかかりつけ医への確認を依頼してください。</b><br>'+res.flags.map(x=>'・'+esc2(x)).join('<br>')+'</div>';
+ if(res.todo.length)h+='<div class="warnbar">'+res.todo.map(x=>'・'+esc2(x)).join('<br>')+'</div>';
+ document.getElementById('hearingNote').innerHTML=h;
+ document.getElementById('inputMode').dispatchEvent(new Event('change'));
+ syncGoalUI();updE1();updateSavedBtn(document.getElementById('clientName').value.trim());
+}
+function importHearing(inp){const file=inp.files[0];if(!file)return;
+ const r=new FileReader();
+ r.onload=()=>{try{
+   const wb=XLSX.read(new Uint8Array(r.result),{type:'array'});
+   const ws=wb.Sheets['ヒヤリングシート']||wb.Sheets[wb.SheetNames[0]];
+   const res=parseHearingRows(XLSX.utils.sheet_to_json(ws,{header:1,defval:''}));
+   if(!res.ok){alert('ヒヤリングシートとして読み取れませんでした。最新のヒヤリングシート（Excel）か確認してください。');return;}
+   applyHearing(res);flash('ヒヤリングを読み込みました');window.scrollTo(0,0);
+  }catch(e){alert('ファイルを読み込めませんでした。Excel形式（.xlsx）のヒヤリングシートを選んでください。');}};
+ r.readAsArrayBuffer(file);inp.value='';}
+
 /* ===== 種目ライブラリ UI ===== */
 const AVOIDJP={back:'腰',shoulder:'肩',knee:'膝',elbow:'肘'};
 function renderLib(){
  const t=document.getElementById('libTable');if(!t)return;
- let h='<table style="border-collapse:collapse;font-size:12px;min-width:760px"><thead><tr>'
-  +['種目名','カテゴリ','用途','レップ','必要な器具','故障除外',''].map(x=>'<th style="text-align:left;padding:4px 6px;color:var(--mut);font-size:10px">'+x+'</th>').join('')+'</tr></thead><tbody>';
+ let h='<table style="border-collapse:collapse;font-size:12px;min-width:1040px"><thead><tr>'
+  +['種目名','カテゴリ','用途','レップ/分','必要な器具','難しさ','背骨負荷','必要な柔軟性','故障除外',''].map(x=>'<th style="text-align:left;padding:4px 6px;color:var(--mut);font-size:10px">'+x+'</th>').join('')+'</tr></thead><tbody>';
  LIB.forEach((e,i)=>{
   h+='<tr>';
   h+=`<td style="padding:3px 4px"><input style="width:180px;font-size:12px;padding:5px 6px" value="${e.n.replace(/"/g,'&quot;')}" onchange="libEdit(${i},'n',this.value)"></td>`;
   h+=`<td style="padding:3px 4px"><select style="width:110px;font-size:12px;padding:5px 4px" onchange="libEdit(${i},'c',this.value)">${CATS.map(c=>`<option value="${c[0]}" ${c[0]===e.c?'selected':''}>${c[1]}</option>`).join('')}</select></td>`;
-  h+='<td style="padding:3px 4px;white-space:nowrap">'+[['backoff','BO'],['stick','弱点'],['hyper','肥大']].map(u=>
+  h+='<td style="padding:3px 4px;white-space:nowrap">'+[['backoff','BO'],['stick','弱点'],['hyper','肥大'],['cond','CD']].map(u=>
     `<label style="font-size:11px;margin-right:6px;color:var(--ink)"><input type="checkbox" style="width:auto" ${e.u.includes(u[0])?'checked':''} onchange="libUse(${i},'${u[0]}',this.checked)">${u[1]}</label>`).join('')+'</td>';
   h+=`<td style="padding:3px 4px"><input type="number" style="width:52px;font-size:12px;padding:5px 4px" value="${e.r}" onchange="libEdit(${i},'r',parseInt(this.value)||8)"></td>`;
   h+=`<td style="padding:3px 4px"><select style="width:120px;font-size:12px;padding:5px 4px" onchange="libEdit(${i},'q',this.value)"><option value="" ${!e.q?'selected':''}>指定なし</option>${Object.keys(EQJP).map(k=>`<option value="${k}" ${e.q===k?'selected':''}>${EQJP[k]}</option>`).join('')}</select></td>`;
+  h+=`<td style="padding:3px 4px"><select style="width:58px;font-size:12px;padding:5px 4px" onchange="libEdit(${i},'d',parseInt(this.value))">${[1,2,3].map(n=>`<option value="${n}" ${(e.d||1)===n?'selected':''}>${['易','中','難'][n-1]}</option>`).join('')}</select></td>`;
+  h+=`<td style="padding:3px 4px"><select style="width:58px;font-size:12px;padding:5px 4px" onchange="libEdit(${i},'sp',parseInt(this.value))">${[0,1,2,3].map(n=>`<option value="${n}" ${(e.sp||0)===n?'selected':''}>${['なし','小','中','大'][n]}</option>`).join('')}</select></td>`;
+  h+='<td style="padding:3px 4px;white-space:nowrap">'+[['oh','頭上'],['ankle','足首'],['hip','股関節']].map(m=>
+    `<label style="font-size:11px;margin-right:5px;color:var(--ink)"><input type="checkbox" style="width:auto" ${(e.mob||[]).includes(m[0])?'checked':''} onchange="libMob(${i},'${m[0]}',this.checked)">${m[1]}</label>`).join('')+'</td>';
   h+='<td style="padding:3px 4px;white-space:nowrap">'+Object.keys(AVOIDJP).map(a=>
     `<label style="font-size:11px;margin-right:5px;color:var(--ink)"><input type="checkbox" style="width:auto" ${e.a.includes(a)?'checked':''} onchange="libAvoid(${i},'${a}',this.checked)">${AVOIDJP[a]}</label>`).join('')+'</td>';
   h+=`<td style="padding:3px 4px"><button class="btn ghost small" style="padding:5px 9px" onclick="libDel(${i})">削除</button></td>`;
@@ -1431,12 +1757,13 @@ function renderLib(){
  t.innerHTML=h;
 }
 function libEdit(i,f,v){LIB[i][f]=v;libSave();}
+function libMob(i,t,on){const a=LIB[i].mob||(LIB[i].mob=[]);const j=a.indexOf(t);if(on&&j<0)a.push(t);if(!on&&j>=0)a.splice(j,1);libSave();}
 function libUse(i,u,on){const a=LIB[i].u;const j=a.indexOf(u);
  if(on&&j<0)a.push(u);if(!on&&j>=0)a.splice(j,1);libSave();}
 function libAvoid(i,t,on){const a=LIB[i].a;const j=a.indexOf(t);
  if(on&&j<0)a.push(t);if(!on&&j>=0)a.splice(j,1);libSave();}
 function libDel(i){if(!confirm('「'+LIB[i].n+'」を削除しますか？'))return;LIB.splice(i,1);libSave();renderLib();}
-function libAddRow(){LIB.push({n:'新しい種目',c:'chest',u:['hyper'],r:8,a:[],q:''});libSave();renderLib();
+function libAddRow(){LIB.push({n:'新しい種目',c:'chest',u:['hyper'],r:8,a:[],q:'',d:1,sp:0,mob:[]});libSave();renderLib();
  const t=document.getElementById('libTable');t.scrollTop=t.scrollHeight;}
 
 function loadSample(){const set=(id,v)=>document.getElementById(id).value=v;
@@ -1455,5 +1782,6 @@ function loadSampleBM(){const set=(id,v)=>document.getElementById(id).value=v;
  set('w_deadlift',150);set('r_deadlift',5);set('rpe_deadlift',8);
  syncGoalUI();updE1();generate();}
 
-libLoad();bandsLoad();buildLiftInputs();refreshClientList();syncGoalUI();renderLib();renderBandsBox();
+libLoad();bandsLoad();buildLiftInputs();refreshClientList();syncGoalUI();renderLib();renderBandsBox();updateBackupWarn();
+(function(){const v=document.getElementById('appVer');if(v)v.textContent='v'+APP_VER;})();
 </script>
